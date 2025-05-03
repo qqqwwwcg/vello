@@ -21,7 +21,7 @@ use std::sync::Arc;
 use minimal_pipeline_cache::{get_cache_directory, load_pipeline_cache, write_pipeline_cache};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
-use vello::low_level::DebugLayers;
+
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 use winit::application::ApplicationHandler;
@@ -172,8 +172,6 @@ struct VelloApp<'s> {
 
     prev_scene_ix: i32,
     modifiers: ModifiersState,
-
-    debug: DebugLayers,
 
     #[cfg(not(target_arch = "wasm32"))]
     cache_data: Option<(PathBuf, std::sync::mpsc::Sender<(PipelineCache, PathBuf)>)>,
@@ -362,29 +360,6 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                                             wgpu::PresentMode::AutoNoVsync
                                         },
                                     );
-                                }
-                                debug_layer @ ("1" | "2" | "3" | "4") => {
-                                    match debug_layer {
-                                        "1" => {
-                                            self.debug.toggle(DebugLayers::BOUNDING_BOXES);
-                                        }
-                                        "2" => {
-                                            self.debug.toggle(DebugLayers::LINESOUP_SEGMENTS);
-                                        }
-                                        "3" => {
-                                            self.debug.toggle(DebugLayers::LINESOUP_POINTS);
-                                        }
-                                        "4" => {
-                                            self.debug.toggle(DebugLayers::VALIDATION);
-                                        }
-                                        _ => unreachable!(),
-                                    }
-                                    if !self.debug.is_empty() && !self.async_pipeline {
-                                        log::warn!(
-                                            "Debug Layers won't work without using `--async-pipeline`. Requested {:?}",
-                                            self.debug
-                                        );
-                                    }
                                 }
                                 _ => {}
                             }
@@ -591,7 +566,6 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                                 &self.scene,
                                 &surface.target_view,
                                 &render_params,
-                                self.debug,
                             ),
                     )
                     .expect("failed to render to texture");
@@ -787,7 +761,6 @@ fn run(
     } else {
         None
     };
-    let debug = DebugLayers::none();
 
     let mut app = VelloApp {
         context: render_cx,
@@ -833,7 +806,6 @@ fn run(
         complexity: 0,
         prev_scene_ix: 0,
         modifiers: ModifiersState::default(),
-        debug,
         #[cfg(not(target_arch = "wasm32"))]
         cache_data,
     };

@@ -26,9 +26,7 @@ wgpu = ["dep:wgpu", "dep:vello_shaders", "dep:futures-intrusive"]
 
 # Development only features
 
-# Enables debug features when using the "async" pipeline.
-# This is only intended for development of Vello itself.
-debug_layers = []
+
 # Enables an embedded wgpu-profiler profiler.
 # This is only intended for development of Vello itself.
 # It is currently known to not work - see https://github.com/linebender/vello/issues/678
