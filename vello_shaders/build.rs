@@ -99,40 +99,10 @@ fn write_shaders(
             )?;
             writeln!(buf, "            }},")?;
         }
-        if cfg!(feature = "msl") {
-            write_msl(buf, info)?;
-        }
+
         writeln!(buf, "        }},")?;
     }
     writeln!(buf, "    }};")?;
     writeln!(buf, "}}")?;
-    Ok(())
-}
-
-#[cfg(not(feature = "msl"))]
-fn write_msl(_: &mut String, _: &ShaderInfo) -> Result<(), std::fmt::Error> {
-    Ok(())
-}
-
-#[cfg(feature = "msl")]
-fn write_msl(buf: &mut String, info: &ShaderInfo) -> Result<(), std::fmt::Error> {
-    let mut index_iter = compile::msl::BindingIndexIterator::default();
-    let indices = info
-        .bindings
-        .iter()
-        .map(|binding| index_iter.next(binding.ty))
-        .collect::<Vec<_>>();
-    writeln!(buf, "            msl: MslSource {{")?;
-    writeln!(
-        buf,
-        "                code: Cow::Borrowed({:?}),",
-        compile::msl::translate(info).unwrap()
-    )?;
-    writeln!(
-        buf,
-        "                binding_indices : Cow::Borrowed(&{:?}),",
-        indices
-    )?;
-    writeln!(buf, "            }},")?;
     Ok(())
 }

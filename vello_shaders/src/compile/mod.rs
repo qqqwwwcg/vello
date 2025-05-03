@@ -13,9 +13,6 @@ use thiserror::Error;
 pub mod permutations;
 pub mod preprocess;
 
-#[cfg(feature = "msl")]
-pub mod msl;
-
 use crate::types::{BindType, BindingInfo, WorkgroupBufferInfo};
 
 pub type Result<T> = std::result::Result<T, Error>;

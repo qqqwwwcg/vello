@@ -51,8 +51,6 @@ pub mod compile;
 #[cfg(feature = "cpu")]
 pub mod cpu;
 
-#[cfg(feature = "msl")]
-pub use types::msl;
 pub use types::{BindType, BindingInfo, WorkgroupBufferInfo};
 
 use std::borrow::Cow;
@@ -66,9 +64,6 @@ pub struct ComputeShader<'a> {
 
     #[cfg(feature = "wgsl")]
     pub wgsl: WgslSource<'a>,
-
-    #[cfg(feature = "msl")]
-    pub msl: MslSource<'a>,
 }
 
 #[cfg(feature = "wgsl")]
@@ -103,39 +98,6 @@ pub struct WgslSource<'a> {
     ///   },
     /// ```
     pub binding_indices: Cow<'a, [u8]>,
-}
-
-#[cfg(feature = "msl")]
-#[derive(Clone, Debug)]
-pub struct MslSource<'a> {
-    pub code: Cow<'a, str>,
-
-    /// Contains the binding index of each resource listed in [`ComputeShader::bindings`].
-    /// This is guaranteed to have the same element count as `ComputeShader::bindings`.
-    ///
-    /// In MSL, each index is scoped to the index range of the corresponding resource type.
-    ///
-    /// Example:
-    /// --------
-    /// ```wgsl
-    /// // An unused binding (i.e. declaration is not reachable from the entry-point)
-    /// @group(0) @binding(0) var<uniform> foo: Foo;
-    ///
-    /// // Used bindings:
-    /// @group(0) @binding(1) var<storage> buffer: Buffer;
-    /// @group(0) @binding(2) var tex: texture_2d<f32>;
-    /// ```
-    /// This results in the following bindings:
-    /// ```rust,ignore
-    ///   bindings: [BindType::Buffer, BindType::ImageRead],
-    ///   // ...
-    ///   msl: MslSource {
-    ///       code: /* ... */,
-    ///       // In MSL these would be declared as `[[buffer(0)]]` and `[[texture(0)]]`.
-    ///       binding_indices: [msl::BindingIndex::Buffer(0), msl::BindingIndex::Texture(0)],
-    ///   },
-    /// ```
-    pub binding_indices: Cow<'a, [msl::BindingIndex]>,
 }
 
 include!(concat!(env!("OUT_DIR"), "/shaders.rs"));

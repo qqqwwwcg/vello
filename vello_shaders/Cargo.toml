@@ -21,7 +21,6 @@ compile = ["dep:naga", "dep:thiserror"]
 
 # Target shading language variants of the vello shaders to link into the library.
 wgsl = []
-msl = ["naga?/msl-out"]
 
 # Enable the CPU versions of the shaders
 cpu = ["dep:bytemuck", "dep:vello_encoding"]
