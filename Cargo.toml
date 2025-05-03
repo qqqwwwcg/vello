@@ -10,8 +10,6 @@ members = [
     "examples/scenes",
     "examples/simple",
     "examples/with_winit",
-
-    "image_filters/vello_filters_cpu",
 ]
 
 [workspace.package]

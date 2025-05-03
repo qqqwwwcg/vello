@@ -2593,10 +2593,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vello_filters_cpu"
-version = "0.4.0"
-
-[[package]]
 name = "vello_shaders"
 version = "0.4.0"
 dependencies = [
