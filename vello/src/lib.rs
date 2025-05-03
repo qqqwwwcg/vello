@@ -157,8 +157,6 @@ use wgpu_engine::{ExternalResource, WgpuEngine};
 use std::{num::NonZeroUsize, sync::atomic::AtomicBool};
 #[cfg(feature = "wgpu")]
 use wgpu::{Device, Queue, TextureView};
-#[cfg(all(feature = "wgpu", feature = "wgpu-profiler"))]
-use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
 
 /// Represents the anti-aliasing method to use during a render pass.
 ///
@@ -284,13 +282,6 @@ pub enum Error {
     #[error("wgpu Error from scope")]
     WgpuErrorFromScope(#[from] wgpu::Error),
 
-    /// Failed to create [`GpuProfiler`].
-    /// See [`wgpu_profiler::CreationError`] for more information.
-    #[cfg(feature = "wgpu-profiler")]
-    #[error("Couldn't create wgpu profiler")]
-    #[doc(hidden)] // End-users of Vello should not have `wgpu-profiler` enabled.
-    ProfilerCreationError(#[from] wgpu_profiler::CreationError),
-
     /// Failed to compile the shaders.
     #[cfg(feature = "hot_reload")]
     #[error("Failed to compile shaders:\n{0}")]
@@ -322,14 +313,6 @@ pub struct Renderer {
     engine: WgpuEngine,
     resolver: Resolver,
     shaders: FullShaders,
-    #[cfg(feature = "wgpu-profiler")]
-    #[doc(hidden)] // End-users of Vello should not have `wgpu-profiler` enabled.
-    /// The profiler used with events for this renderer. This is *not* treated as public API.
-    pub profiler: GpuProfiler,
-    #[cfg(feature = "wgpu-profiler")]
-    #[doc(hidden)] // End-users of Vello should not have `wgpu-profiler` enabled.
-    /// The results from profiling. This is *not* treated as public API.
-    pub profile_result: Option<Vec<wgpu_profiler::GpuTimerQueryResult>>,
 }
 // This is not `Send` (or `Sync`) on WebAssembly as the
 // underlying wgpu types are not. This can be enabled with the
@@ -431,13 +414,6 @@ impl Renderer {
             engine,
             resolver: Resolver::new(),
             shaders,
-
-            #[cfg(feature = "wgpu-profiler")]
-            profiler: GpuProfiler::new(GpuProfilerSettings {
-                ..Default::default()
-            })?,
-            #[cfg(feature = "wgpu-profiler")]
-            profile_result: None,
         })
     }
 
@@ -475,8 +451,6 @@ impl Renderer {
             &recording,
             &external_resources,
             "render_to_texture",
-            #[cfg(feature = "wgpu-profiler")]
-            &mut self.profiler,
         )?;
         Ok(())
     }
@@ -545,17 +519,6 @@ impl Renderer {
             .render_to_texture_async_internal(device, queue, scene, texture, params)
             .await?;
 
-        #[cfg(feature = "wgpu-profiler")]
-        {
-            self.profiler.end_frame().unwrap();
-            if let Some(result) = self
-                .profiler
-                .process_finished_frame(queue.get_timestamp_period())
-            {
-                self.profile_result = Some(result);
-            }
-        }
-
         Ok(result.bump)
     }
 
@@ -583,15 +546,8 @@ impl Renderer {
         let target = render.out_image();
         let bump_buf = render.bump_buf();
 
-        self.engine.run_recording(
-            device,
-            queue,
-            &recording,
-            &[],
-            "t_async_coarse",
-            #[cfg(feature = "wgpu-profiler")]
-            &mut self.profiler,
-        )?;
+        self.engine
+            .run_recording(device, queue, &recording, &[], "t_async_coarse")?;
 
         let mut bump: Option<BumpAllocators> = None;
         if let Some(bump_buf) = self.engine.get_download(bump_buf) {
@@ -615,8 +571,6 @@ impl Renderer {
             &recording,
             &external_resources,
             "t_async_fine",
-            #[cfg(feature = "wgpu-profiler")]
-            &mut self.profiler,
         )?;
         Ok(RenderResult { bump })
     }

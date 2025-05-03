@@ -12,10 +12,8 @@ name = "with_winit"
 crate-type = ["cdylib", "lib"]
 
 [features]
-default = ["wgpu-profiler"]
-# Enable the use of wgpu-profiler. This is an optional feature for times when we use a git dependency on
-# wgpu (which means the dependency used in wgpu-profiler would be incompatible)
-wgpu-profiler = ["dep:wgpu-profiler", "vello/wgpu-profiler"]
+default = []
+
 # Test for dependencies which implement std traits in ways that cause type inference issues.
 _ci_dep_features_to_test = ["dep:kurbo", "kurbo/schemars"]
 

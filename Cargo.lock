@@ -2578,7 +2578,6 @@ dependencies = [
  "vello_encoding",
  "vello_shaders",
  "wgpu",
- "wgpu-profiler",
 ]
 
 [[package]]

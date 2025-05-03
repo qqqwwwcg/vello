@@ -50,7 +50,6 @@ use vello::wgpu::{self, PipelineCache};
 mod hot_reload;
 mod minimal_pipeline_cache;
 mod multi_touch;
-mod stats;
 
 #[derive(Parser, Debug)]
 #[command(about, long_about = None, bin_name="cargo run -p with_winit --")]
@@ -135,7 +134,6 @@ struct VelloApp<'s> {
     fragment: Scene,
     simple_text: SimpleText,
     images: ImageCache,
-    stats: stats::Stats,
     stats_shown: bool,
 
     base_color: Option<Color>,
@@ -316,39 +314,12 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                                 "d" => {
                                     self.complexity_shown = !self.complexity_shown;
                                 }
-                                "c" => {
-                                    self.stats.clear_min_and_max();
-                                }
                                 "m" => {
                                     self.aa_config_ix = if self.modifiers.shift_key() {
                                         self.aa_config_ix.saturating_sub(1)
                                     } else {
                                         self.aa_config_ix.saturating_add(1)
                                     };
-                                }
-                                #[cfg(feature = "wgpu-profiler")]
-                                "p" => {
-                                    if let Some(renderer) =
-                                        &self.renderers[render_state.surface.dev_id]
-                                    {
-                                        store_profiling(renderer, &self.profile_stored);
-                                    }
-                                }
-                                #[cfg(feature = "wgpu-profiler")]
-                                "g" => {
-                                    self.gpu_profiling_on = !self.gpu_profiling_on;
-                                    if let Some(renderer) =
-                                        &mut self.renderers[render_state.surface.dev_id]
-                                    {
-                                        renderer
-                                            .profiler
-                                            .change_settings(wgpu_profiler::GpuProfilerSettings {
-                                                enable_timer_queries: self.gpu_profiling_on,
-                                                enable_debug_groups: self.gpu_profiling_on,
-                                                ..Default::default()
-                                            })
-                                            .expect("Not setting max_num_pending_frames");
-                                    }
                                 }
                                 "v" => {
                                     self.vsync_on = !self.vsync_on;
@@ -460,7 +431,6 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                 let width = surface.config.width;
                 let height = surface.config.height;
                 let device_handle = &self.context.devices[surface.dev_id];
-                let snapshot = self.stats.snapshot();
 
                 // Allow looping forever
                 self.scene_ix = self.scene_ix.rem_euclid(self.scenes.len() as i32);
@@ -509,42 +479,6 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                     transform *= Affine::scale(scale_factor);
                 }
                 self.scene.append(&self.fragment, Some(transform));
-                if self.stats_shown {
-                    snapshot.draw_layer(
-                        &mut self.scene,
-                        scene_params.text,
-                        width as f64,
-                        height as f64,
-                        self.stats.samples(),
-                        self.complexity_shown
-                            .then_some(self.scene_complexity)
-                            .flatten(),
-                        self.vsync_on,
-                        antialiasing_method,
-                    );
-                    #[cfg(feature = "wgpu-profiler")]
-                    if let Some(profiling_result) = self.renderers[surface.dev_id]
-                        .as_mut()
-                        .and_then(|renderer| renderer.profile_result.take())
-                    {
-                        if self.profile_stored.is_none()
-                            || self.profile_taken.elapsed() > Duration::from_secs(1)
-                        {
-                            self.profile_stored = Some(profiling_result);
-                            self.profile_taken = Instant::now();
-                        }
-                    }
-                    #[cfg(feature = "wgpu-profiler")]
-                    if let Some(profiling_result) = self.profile_stored.as_ref() {
-                        stats::draw_gpu_profiling(
-                            &mut self.scene,
-                            scene_params.text,
-                            width as f64,
-                            height as f64,
-                            profiling_result,
-                        );
-                    }
-                }
                 drop(encoding_span);
                 let render_span = tracing::trace_span!("Dispatching render").entered();
                 // Note: we don't run the async/"robust" pipeline on web, as
@@ -614,9 +548,6 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                     device_handle.device.poll(wgpu::Maintain::Poll);
                 }
                 let new_time = Instant::now();
-                self.stats.add_sample(stats::Sample {
-                    frame_time_us: (new_time - self.frame_start_time).as_micros() as u64,
-                });
                 self.frame_start_time = new_time;
             }
             _ => {}
@@ -777,7 +708,6 @@ fn run(
         fragment: Scene::new(),
         simple_text: SimpleText::new(),
         images: ImageCache::new(),
-        stats: stats::Stats::new(),
         stats_shown: true,
         base_color: args.args.base_color,
         async_pipeline: args.async_pipeline,

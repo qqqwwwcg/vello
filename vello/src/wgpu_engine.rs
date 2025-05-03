@@ -318,7 +318,6 @@ impl WgpuEngine {
         recording: &Recording,
         external_resources: &[ExternalResource<'_>],
         label: &'static str,
-        #[cfg(feature = "wgpu-profiler")] profiler: &mut wgpu_profiler::GpuProfiler,
     ) -> Result<()> {
         let mut free_bufs: HashSet<ResourceId> = HashSet::default();
         let mut free_images: HashSet<ResourceId> = HashSet::default();
@@ -326,8 +325,7 @@ impl WgpuEngine {
 
         let mut encoder =
             device.create_command_encoder(&CommandEncoderDescriptor { label: Some(label) });
-        #[cfg(feature = "wgpu-profiler")]
-        let query = profiler.begin_query(label, &mut encoder, device);
+
         for command in &recording.commands {
             match command {
                 Command::Upload(buf_proxy, bytes) => {
@@ -493,10 +491,7 @@ impl WgpuEngine {
                             );
                             let mut cpass =
                                 encoder.begin_compute_pass(&ComputePassDescriptor::default());
-                            #[cfg(feature = "wgpu-profiler")]
-                            let query = profiler
-                                .begin_query(shader.label, &mut cpass, device)
-                                .with_parent(Some(&query));
+
                             #[cfg_attr(
                                 not(feature = "debug_layers"),
                                 expect(
@@ -510,8 +505,6 @@ impl WgpuEngine {
                             cpass.set_pipeline(pipeline);
                             cpass.set_bind_group(0, &bind_group, &[]);
                             cpass.dispatch_workgroups(x, y, z);
-                            #[cfg(feature = "wgpu-profiler")]
-                            profiler.end_query(&mut cpass, query);
                         }
                     }
                 }
@@ -551,10 +544,7 @@ impl WgpuEngine {
                             );
                             let mut cpass =
                                 encoder.begin_compute_pass(&ComputePassDescriptor::default());
-                            #[cfg(feature = "wgpu-profiler")]
-                            let query = profiler
-                                .begin_query(shader.label, &mut cpass, device)
-                                .with_parent(Some(&query));
+
                             #[cfg_attr(
                                 not(feature = "debug_layers"),
                                 expect(
@@ -571,8 +561,6 @@ impl WgpuEngine {
                                 Error::UnavailableBufferUsed(proxy.name, "indirect dispatch"),
                             )?;
                             cpass.dispatch_workgroups_indirect(buf, *offset);
-                            #[cfg(feature = "wgpu-profiler")]
-                            profiler.end_query(&mut cpass, query);
                         }
                     }
                 }
@@ -610,11 +598,7 @@ impl WgpuEngine {
                 }
             }
         }
-        #[cfg(feature = "wgpu-profiler")]
-        profiler.end_query(&mut encoder, query);
-        // TODO: This only actually needs to happen once per frame, but run_recording happens two or three times
-        #[cfg(feature = "wgpu-profiler")]
-        profiler.resolve_queries(&mut encoder);
+
         queue.submit(Some(encoder.finish()));
         for id in free_bufs {
             if let Some(buf) = self.bind_map.buf_map.remove(&id) {
