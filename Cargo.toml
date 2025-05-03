@@ -4,7 +4,6 @@ members = [
     "vello",
     "vello_encoding",
     "vello_shaders",
-    "vello_tests",
 
     "examples/headless",
     "examples/run_wasm",
