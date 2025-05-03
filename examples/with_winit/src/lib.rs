@@ -34,7 +34,7 @@ use std::time::Duration;
 use web_time::Duration;
 
 use clap::Parser;
-use scenes::{ExampleScene, ImageCache, SceneParams, SceneSet, SimpleText};
+use scenes::{ExampleScene, ImageCache, SceneParams, SceneSet};
 use vello::kurbo::{Affine, Vec2};
 use vello::peniko::{Color, color::palette};
 use vello::util::{RenderContext, RenderSurface};
@@ -128,7 +128,6 @@ struct VelloApp<'s> {
     scenes: Vec<ExampleScene>,
     scene: Scene,
     fragment: Scene,
-    simple_text: SimpleText,
     images: ImageCache,
     stats_shown: bool,
 
@@ -440,7 +439,6 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                 self.fragment.reset();
                 let mut scene_params = SceneParams {
                     time: self.start.elapsed().as_secs_f64(),
-                    text: &mut self.simple_text,
                     images: &mut self.images,
                     resolution: None,
                     base_color: None,
@@ -678,7 +676,6 @@ fn run(
         scenes: scenes.scenes,
         scene: Scene::new(),
         fragment: Scene::new(),
-        simple_text: SimpleText::new(),
         images: ImageCache::new(),
         stats_shown: true,
         base_color: args.args.base_color,

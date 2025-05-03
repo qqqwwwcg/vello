@@ -180,14 +180,7 @@ pub fn svg_function_of<R: AsRef<str>>(
                     params.resolution = Some(resolution);
                     cached_scene = Some((scene_frag, resolution));
                 }
-                Err(RecvTimeoutError::Timeout) => params.text.add(
-                    scene,
-                    None,
-                    48.,
-                    None,
-                    Affine::translate((110.0, 600.0)),
-                    &format!("Loading {name}"),
-                ),
+                Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {
                     panic!()
                 }

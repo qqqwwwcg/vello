@@ -56,17 +56,11 @@ macro_rules! scene {
 }
 
 export_scenes!(
-    splash_with_tiger(impls::splash_with_tiger(), "splash_with_tiger", false),
-    funky_paths(funky_paths),
     stroke_styles(impls::stroke_styles(Affine::IDENTITY), "stroke_styles", false),
     stroke_styles_non_uniform(impls::stroke_styles(Affine::scale_non_uniform(1.2, 0.7)), "stroke_styles (non-uniform scale)", false),
     stroke_styles_skew(impls::stroke_styles(Affine::skew(1., 0.)), "stroke_styles (skew)", false),
-    emoji(emoji),
-    tricky_strokes(tricky_strokes),
     fill_types(fill_types),
     cardioid_and_friends(cardioid_and_friends),
-    animated_text(animated_text: animated),
-    gradient_extend(gradient_extend),
     two_point_radial(two_point_radial),
     brush_transform(brush_transform: animated),
     blend_grid(blend_grid),
@@ -81,7 +75,6 @@ export_scenes!(
     longpathdash_round(impls::longpathdash(Cap::Round), "longpathdash (round caps)", false),
     mmark(crate::mmark::MMark::new(80_000), "mmark", false),
     many_draw_objects(many_draw_objects),
-    blurred_rounded_rect(blurred_rounded_rect),
     image_sampling(image_sampling),
     image_extend_modes_bilinear(impls::image_extend_modes(ImageQuality::Medium), "image_extend_modes (bilinear)", false),
     image_extend_modes_nearest_neighbor(impls::image_extend_modes(ImageQuality::Low), "image_extend_modes (nearest neighbor)", false),
@@ -94,7 +87,6 @@ mod impls {
     use std::sync::Arc;
 
     use crate::SceneParams;
-    use kurbo::RoundedRect;
     use rand::Rng;
     use rand::{SeedableRng, rngs::StdRng};
     use vello::kurbo::{
@@ -105,69 +97,6 @@ mod impls {
     use vello::*;
 
     const FLOWER_IMAGE: &[u8] = include_bytes!("../../assets/splash-flower.jpg");
-
-    pub(super) fn emoji(scene: &mut Scene, params: &mut SceneParams<'_>) {
-        let text_size = 120. + 20. * (params.time * 2.).sin() as f32;
-        let s = "🎉🤠✅";
-        params.text.add_colr_emoji_run(
-            scene,
-            text_size,
-            Affine::translate(Vec2::new(100., 250.)),
-            None,
-            Fill::NonZero,
-            s,
-        );
-        params.text.add_bitmap_emoji_run(
-            scene,
-            text_size,
-            Affine::translate(Vec2::new(100., 500.)),
-            None,
-            Fill::NonZero,
-            s,
-        );
-    }
-
-    pub(super) fn funky_paths(scene: &mut Scene, _: &mut SceneParams<'_>) {
-        use PathEl::*;
-        let missing_movetos = [
-            MoveTo((0., 0.).into()),
-            LineTo((100.0, 100.0).into()),
-            LineTo((100.0, 200.0).into()),
-            ClosePath,
-            LineTo((0.0, 400.0).into()),
-            LineTo((100.0, 400.0).into()),
-        ];
-        let only_movetos = [MoveTo((0.0, 0.0).into()), MoveTo((100.0, 100.0).into())];
-        let empty: [PathEl; 0] = [];
-        scene.fill(
-            Fill::NonZero,
-            Affine::translate((100.0, 100.0)),
-            palette::css::BLUE,
-            None,
-            &missing_movetos,
-        );
-        scene.fill(
-            Fill::NonZero,
-            Affine::IDENTITY,
-            palette::css::BLUE,
-            None,
-            &empty,
-        );
-        scene.fill(
-            Fill::NonZero,
-            Affine::IDENTITY,
-            palette::css::BLUE,
-            None,
-            &only_movetos,
-        );
-        scene.stroke(
-            &Stroke::new(8.0),
-            Affine::translate((100.0, 100.0)),
-            palette::css::AQUA,
-            None,
-            &missing_movetos,
-        );
-    }
 
     pub(super) fn stroke_styles(transform: Affine) -> impl FnMut(&mut Scene, &mut SceneParams<'_>) {
         use PathEl::*;
@@ -212,14 +141,6 @@ mod impls {
             let mut color_idx = 0;
             for start in cap_styles {
                 for end in cap_styles {
-                    params.text.add(
-                        scene,
-                        None,
-                        12.,
-                        None,
-                        Affine::translate((0., y)) * t,
-                        &format!("Start cap: {:?}, End cap: {:?}", start, end),
-                    );
                     scene.stroke(
                         &Stroke::new(20.).with_start_cap(start).with_end_cap(end),
                         Affine::translate((0., y + 30.)) * t * transform,
@@ -237,14 +158,6 @@ mod impls {
             y = 0.;
             for start in cap_styles {
                 for end in cap_styles {
-                    params.text.add(
-                        scene,
-                        None,
-                        12.,
-                        None,
-                        Affine::translate((0., y)) * t,
-                        &format!("Dashing - Start cap: {:?}, End cap: {:?}", start, end),
-                    );
                     scene.stroke(
                         &Stroke::new(20.)
                             .with_start_cap(start)
@@ -266,14 +179,6 @@ mod impls {
             y = 0.;
             for cap in cap_styles {
                 for join in join_styles {
-                    params.text.add(
-                        scene,
-                        None,
-                        12.,
-                        None,
-                        Affine::translate((0., y)) * t,
-                        &format!("Caps: {:?}, Joins: {:?}", cap, join),
-                    );
                     scene.stroke(
                         &Stroke::new(20.).with_caps(cap).with_join(join),
                         Affine::translate((0., y + 30.)) * t * transform,
@@ -291,14 +196,6 @@ mod impls {
             y_max = y_max.max(y);
             y = 0.;
             for ml in miter_limits {
-                params.text.add(
-                    scene,
-                    None,
-                    12.,
-                    None,
-                    Affine::translate((0., y)) * t,
-                    &format!("Miter limit: {}", ml),
-                );
                 scene.stroke(
                     &Stroke::new(10.)
                         .with_caps(Cap::Butt)
@@ -315,14 +212,6 @@ mod impls {
 
             // Closed paths
             for (i, join) in join_styles.iter().enumerate() {
-                params.text.add(
-                    scene,
-                    None,
-                    12.,
-                    None,
-                    Affine::translate((0., y)) * t,
-                    &format!("Closed path with join: {:?}", join),
-                );
                 // The cap style is not important since a closed path shouldn't have any caps.
                 scene.stroke(
                     &Stroke::new(10.)
@@ -343,194 +232,6 @@ mod impls {
             let x_max = t.translation().x + 400. * 2. + 50.;
             params.resolution = Some((x_max, y_max).into());
         }
-    }
-
-    // This test has been adapted from Skia's "trickycubicstrokes" GM slide which can be found at
-    // `github.com/google/skia/blob/0d4d11451c4f4e184305cbdbd67f6b3edfa4b0e3/gm/trickycubicstrokes.cpp`
-    pub(super) fn tricky_strokes(scene: &mut Scene, params: &mut SceneParams<'_>) {
-        use PathEl::*;
-        let colors = [
-            Color::from_rgb8(140, 181, 236),
-            Color::from_rgb8(246, 236, 202),
-            Color::from_rgb8(201, 147, 206),
-            Color::from_rgb8(150, 195, 160),
-        ];
-
-        const CELL_SIZE: f64 = 200.;
-        const STROKE_WIDTH: f64 = 30.;
-        const NUM_COLS: usize = 5;
-
-        pub(super) fn stroke_bounds(pts: &[(f64, f64); 4]) -> Rect {
-            use kurbo::CubicBez;
-            CubicBez::new(pts[0], pts[1], pts[2], pts[3])
-                .bounding_box()
-                .inflate(STROKE_WIDTH, STROKE_WIDTH)
-        }
-
-        pub(super) fn map_rect_to_rect(src: &Rect, dst: &Rect) -> (Affine, f64) {
-            let (scale, x_larger) = {
-                let sx = dst.width() / src.width();
-                let sy = dst.height() / src.height();
-                (sx.min(sy), sx > sy)
-            };
-            let tx = dst.x0 - src.x0 * scale;
-            let ty = dst.y0 - src.y0 * scale;
-            let (tx, ty) = if x_larger {
-                (tx + 0.5 * (dst.width() - src.width() * scale), ty)
-            } else {
-                (tx, ty + 0.5 * (dst.height() - src.height() * scale))
-            };
-            (Affine::new([scale, 0.0, 0.0, scale, tx, ty]), scale)
-        }
-
-        let tricky_cubics = [
-            [(122., 737.), (348., 553.), (403., 761.), (400., 760.)],
-            [(244., 520.), (244., 518.), (1141., 634.), (394., 688.)],
-            [(550., 194.), (138., 130.), (1035., 246.), (288., 300.)],
-            [(226., 733.), (556., 779.), (-43., 471.), (348., 683.)],
-            [(268., 204.), (492., 304.), (352., 23.), (433., 412.)],
-            [(172., 480.), (396., 580.), (256., 299.), (338., 677.)],
-            [(731., 340.), (318., 252.), (1026., -64.), (367., 265.)],
-            [(475., 708.), (62., 620.), (770., 304.), (220., 659.)],
-            [(0., 0.), (128., 128.), (128., 0.), (0., 128.)], // Perfect cusp
-            [(0., 0.01), (128., 127.999), (128., 0.01), (0., 127.99)], // Near-cusp
-            [(0., -0.01), (128., 128.001), (128., -0.01), (0., 128.001)], // Near-cusp
-            [(0., 0.), (0., -10.), (0., -10.), (0., 10.)],    // Flat line with 180
-            [(10., 0.), (0., 0.), (20., 0.), (10., 0.)],      // Flat line with 2 180s
-            [(39., -39.), (40., -40.), (40., -40.), (0., 0.)], // Flat diagonal with 180
-            [(40., 40.), (0., 0.), (200., 200.), (0., 0.)],   // Diag w/ an internal 180
-            [(0., 0.), (1e-2, 0.), (-1e-2, 0.), (0., 0.)],    // Circle
-            // Flat line with no turns:
-            [
-                (400.75, 100.05),
-                (400.75, 100.05),
-                (100.05, 300.95),
-                (100.05, 300.95),
-            ],
-            [(0.5, 0.), (0., 0.), (20., 0.), (10., 0.)], // Flat line with 2 180s
-            [(10., 0.), (0., 0.), (10., 0.), (10., 0.)], // Flat line with a 180
-        ];
-
-        // Flat conic with a cusp: (1,1) (2,1) (1,1), weight: 1
-        let flat_quad = [
-            // moveTo(1., 1.),
-            [(2., 1.), (1., 1.)],
-        ];
-        // Flat conic with a cusp: (1,1) (100,1) (25,1), weight: 0.3
-        let flat_conic_as_quads = [
-            // moveTo(1., 1.),
-            [(2.232486, 1.000000), (3.471740, 1.000000)],
-            [(4.710995, 1.000000), (5.949262, 1.000000)],
-            [(7.187530, 1.000000), (8.417061, 1.000000)],
-            [(9.646591, 1.000000), (10.859690, 1.000000)],
-            [(12.072789, 1.000000), (13.261865, 1.000000)],
-            [(14.450940, 1.000000), (15.608549, 1.000000)],
-            [(16.766161, 1.000000), (17.885059, 1.000000)],
-            [(19.003958, 1.000000), (20.077141, 1.000000)],
-            [(21.150328, 1.000000), (22.171083, 1.000000)],
-            [(23.191839, 1.000000), (24.153776, 1.000000)],
-            [(25.115715, 1.000000), (26.012812, 1.000000)],
-            [(26.909912, 1.000000), (27.736557, 1.000000)],
-            [(28.563202, 1.000000), (29.314220, 1.000000)],
-            [(30.065239, 1.000000), (30.735928, 1.000000)],
-            [(31.406620, 1.000000), (31.992788, 1.000000)],
-            [(32.578957, 1.000000), (33.076927, 1.000000)],
-            [(33.574905, 1.000000), (33.981567, 1.000000)],
-            [(34.388233, 1.000000), (34.701038, 1.000000)],
-            [(35.013851, 1.000000), (35.230850, 1.000000)],
-            [(35.447845, 1.000000), (35.567669, 1.000000)],
-            [(35.687500, 1.000000), (35.709404, 1.000000)],
-            [(35.731312, 1.000000), (35.655155, 1.000000)],
-            [(35.579006, 1.000000), (35.405273, 1.000000)],
-            [(35.231541, 1.000000), (34.961311, 1.000000)],
-            [(34.691086, 1.000000), (34.326057, 1.000000)],
-            [(33.961029, 1.000000), (33.503479, 1.000000)],
-            [(33.045937, 1.000000), (32.498734, 1.000000)],
-            [(31.951530, 1.000000), (31.318098, 1.000000)],
-            [(30.684669, 1.000000), (29.968971, 1.000000)],
-            [(29.253277, 1.000000), (28.459791, 1.000000)],
-            [(27.666309, 1.000000), (26.800005, 1.000000)],
-            [(25.933704, 1.000000), (25.000000, 1.000000)],
-        ];
-        // Flat conic with a cusp: (1,1) (100,1) (25,1), weight: 1.5
-        let bigger_flat_conic_as_quads = [
-            // moveTo(1., 1.),
-            [(8.979845, 1.000000), (15.795975, 1.000000)],
-            [(22.612104, 1.000000), (28.363287, 1.000000)],
-            [(34.114471, 1.000000), (38.884045, 1.000000)],
-            [(43.653618, 1.000000), (47.510696, 1.000000)],
-            [(51.367767, 1.000000), (54.368233, 1.000000)],
-            [(57.368698, 1.000000), (59.556030, 1.000000)],
-            [(61.743366, 1.000000), (63.149269, 1.000000)],
-            [(64.555168, 1.000000), (65.200005, 1.000000)],
-            [(65.844841, 1.000000), (65.737961, 1.000000)],
-            [(65.631073, 1.000000), (64.770912, 1.000000)],
-            [(63.910763, 1.000000), (62.284878, 1.000000)],
-            [(60.658997, 1.000000), (58.243816, 1.000000)],
-            [(55.828640, 1.000000), (52.589172, 1.000000)],
-            [(49.349705, 1.000000), (45.239006, 1.000000)],
-            [(41.128315, 1.000000), (36.086826, 1.000000)],
-            [(31.045338, 1.000000), (25.000000, 1.000000)],
-        ];
-
-        let mut idx = 0;
-        let mut color_idx = 0;
-        for (i, cubic) in tricky_cubics.into_iter().enumerate() {
-            idx += 1;
-            let x = (i % NUM_COLS) as f64 * CELL_SIZE;
-            let y = (i / NUM_COLS) as f64 * CELL_SIZE;
-            let cell = Rect::new(x, y, x + CELL_SIZE, y + CELL_SIZE);
-            let bounds = stroke_bounds(&cubic);
-            let (t, s) = map_rect_to_rect(&bounds, &cell);
-            scene.stroke(
-                &Stroke::new(STROKE_WIDTH / s)
-                    .with_caps(Cap::Butt)
-                    .with_join(Join::Miter),
-                t,
-                colors[color_idx],
-                None,
-                &[
-                    MoveTo(cubic[0].into()),
-                    CurveTo(cubic[1].into(), cubic[2].into(), cubic[3].into()),
-                ],
-            );
-            color_idx = (color_idx + 1) % colors.len();
-        }
-
-        let flat_curves = [
-            flat_quad.as_slice(),
-            flat_conic_as_quads.as_slice(),
-            bigger_flat_conic_as_quads.as_slice(),
-        ];
-        for quads in flat_curves.iter() {
-            let mut path = BezPath::new();
-            path.push(MoveTo((1., 1.).into()));
-            for quad in quads.iter() {
-                path.push(QuadTo(quad[0].into(), quad[1].into()));
-            }
-            let x = (idx % NUM_COLS) as f64 * CELL_SIZE;
-            let y = (idx / NUM_COLS) as f64 * CELL_SIZE;
-            let cell = Rect::new(x, y, x + CELL_SIZE, y + CELL_SIZE);
-            let bounds = path.bounding_box().inflate(STROKE_WIDTH, STROKE_WIDTH);
-            let (t, s) = map_rect_to_rect(&bounds, &cell);
-            scene.stroke(
-                &Stroke::new(STROKE_WIDTH / s)
-                    .with_caps(Cap::Butt)
-                    .with_join(Join::Miter),
-                t,
-                colors[color_idx],
-                None,
-                &path,
-            );
-            color_idx = (color_idx + 1) % colors.len();
-            idx += 1;
-        }
-
-        let curve_count = tricky_cubics.len() + flat_curves.len();
-        params.resolution = Some(Vec2::new(
-            CELL_SIZE * NUM_COLS as f64,
-            CELL_SIZE * (1 + curve_count / NUM_COLS) as f64,
-        ));
     }
 
     pub(super) fn fill_types(scene: &mut Scene, params: &mut SceneParams<'_>) {
@@ -563,7 +264,6 @@ mod impls {
         ];
         for (i, rule) in rules.iter().enumerate() {
             let t = Affine::translate(((i % 2) as f64 * 306., (i / 2) as f64 * 340.)) * t;
-            params.text.add(scene, None, 24., None, t, rule.1);
             let t = Affine::translate((0., 5.)) * t * scale;
             scene.fill(Fill::NonZero, t, palette::css::GRAY, None, &rect);
             scene.fill(
@@ -579,7 +279,6 @@ mod impls {
         let t = Affine::translate((700., 0.)) * t;
         for (i, rule) in rules.iter().enumerate() {
             let t = Affine::translate(((i % 2) as f64 * 306., (i / 2) as f64 * 340.)) * t;
-            params.text.add(scene, None, 24., None, t, rule.1);
             let t = Affine::translate((0., 5.)) * t * scale;
             scene.fill(Fill::NonZero, t, palette::css::GRAY, None, &rect);
             scene.fill(
@@ -657,124 +356,6 @@ mod impls {
         }
     }
 
-    pub(super) fn animated_text(scene: &mut Scene, params: &mut SceneParams<'_>) {
-        // Uses the static array address as a cache key for expedience. Real code
-        // should use a better strategy.
-        let piet_logo = params
-            .images
-            .from_bytes(FLOWER_IMAGE.as_ptr() as usize, FLOWER_IMAGE)
-            .unwrap()
-            .with_alpha(((params.time * 0.5 + 200.0).sin() as f32 + 1.0) * 0.5);
-
-        use PathEl::*;
-        let rect = Rect::from_origin_size(Point::new(0.0, 0.0), (1000.0, 1000.0));
-        let star = [
-            MoveTo((50.0, 0.0).into()),
-            LineTo((21.0, 90.0).into()),
-            LineTo((98.0, 35.0).into()),
-            LineTo((2.0, 35.0).into()),
-            LineTo((79.0, 90.0).into()),
-            ClosePath,
-        ];
-        scene.fill(
-            Fill::NonZero,
-            Affine::IDENTITY,
-            palette::css::GRAY,
-            None,
-            &rect,
-        );
-        let text_size = 60.0 + 40.0 * (params.time as f32).sin();
-        let s = "\u{1f600}hello Vello text!";
-        params.text.add(
-            scene,
-            None,
-            text_size,
-            None,
-            Affine::translate((110.0, 600.0)),
-            s,
-        );
-        params.text.add_run(
-            scene,
-            None,
-            text_size,
-            palette::css::WHITE,
-            Affine::translate((110.0, 700.0)),
-            // Add a skew to simulate an oblique font.
-            Some(Affine::skew(20_f64.to_radians().tan(), 0.0)),
-            &Stroke::new(1.0),
-            s,
-        );
-        let t = ((params.time).sin() * 0.5 + 0.5) as f32;
-        let weight = t * 700.0 + 200.0;
-        let width = t * 150.0 + 50.0;
-        params.text.add_var_run(
-            scene,
-            None,
-            72.0,
-            &[("wght", weight), ("wdth", width)],
-            palette::css::WHITE,
-            Affine::translate((110.0, 800.0)),
-            // Add a skew to simulate an oblique font.
-            None,
-            Fill::NonZero,
-            "And some Vello\ntext with a newline",
-        );
-        let th = params.time;
-        let center = Point::new(500.0, 500.0);
-        let mut p1 = center;
-        p1.x += 400.0 * th.cos();
-        p1.y += 400.0 * th.sin();
-        scene.stroke(
-            &Stroke::new(5.0),
-            Affine::IDENTITY,
-            palette::css::MAROON,
-            None,
-            &[MoveTo(center), LineTo(p1)],
-        );
-        scene.fill(
-            Fill::NonZero,
-            Affine::translate((150.0, 150.0)) * Affine::scale(0.2),
-            palette::css::RED,
-            None,
-            &rect,
-        );
-        let alpha = params.time.sin() as f32 * 0.5 + 0.5;
-        scene.push_layer(Mix::Normal, alpha, Affine::IDENTITY, &rect);
-        scene.fill(
-            Fill::NonZero,
-            Affine::translate((100.0, 100.0)) * Affine::scale(0.2),
-            palette::css::BLUE,
-            None,
-            &rect,
-        );
-        scene.fill(
-            Fill::NonZero,
-            Affine::translate((200.0, 200.0)) * Affine::scale(0.2),
-            palette::css::GREEN,
-            None,
-            &rect,
-        );
-        scene.pop_layer();
-        scene.fill(
-            Fill::NonZero,
-            Affine::translate((400.0, 100.0)),
-            palette::css::PURPLE,
-            None,
-            &star,
-        );
-        scene.fill(
-            Fill::EvenOdd,
-            Affine::translate((500.0, 100.0)),
-            palette::css::PURPLE,
-            None,
-            &star,
-        );
-        scene.draw_image(
-            &piet_logo,
-            Affine::translate((800.0, 50.0)) * Affine::rotate(20_f64.to_radians()),
-        );
-    }
-
     pub(super) fn brush_transform(scene: &mut Scene, params: &mut SceneParams<'_>) {
         let th = params.time;
         let linear = Gradient::new_linear((0.0, 0.0), (0.0, 200.0)).with_stops([
@@ -807,73 +388,6 @@ mod impls {
             Some(around_center(Affine::rotate(th), Point::new(200.0, 100.0))),
             &Rect::from_origin_size(Point::default(), (400.0, 200.0)),
         );
-    }
-
-    pub(super) fn gradient_extend(scene: &mut Scene, params: &mut SceneParams<'_>) {
-        enum Kind {
-            Linear,
-            Radial,
-            Sweep,
-        }
-        pub(super) fn square(scene: &mut Scene, kind: Kind, transform: Affine, extend: Extend) {
-            let colors = [palette::css::RED, palette::css::LIME, palette::css::BLUE];
-            let width = 300_f64;
-            let height = 300_f64;
-            let gradient: Brush = match kind {
-                Kind::Linear => {
-                    Gradient::new_linear((width * 0.35, height * 0.5), (width * 0.65, height * 0.5))
-                        .with_stops(colors)
-                        .with_extend(extend)
-                        .into()
-                }
-                Kind::Radial => {
-                    let center = (width * 0.5, height * 0.5);
-                    let radius = (width * 0.25) as f32;
-                    Gradient::new_two_point_radial(center, radius * 0.25, center, radius)
-                        .with_stops(colors)
-                        .with_extend(extend)
-                        .into()
-                }
-                Kind::Sweep => Gradient::new_sweep(
-                    (width * 0.5, height * 0.5),
-                    30_f32.to_radians(),
-                    150_f32.to_radians(),
-                )
-                .with_stops(colors)
-                .with_extend(extend)
-                .into(),
-            };
-            scene.fill(
-                Fill::NonZero,
-                transform,
-                &gradient,
-                None,
-                &Rect::new(0.0, 0.0, width, height),
-            );
-        }
-        let extend_modes = [Extend::Pad, Extend::Repeat, Extend::Reflect];
-        for (x, extend) in extend_modes.iter().enumerate() {
-            for (y, kind) in [Kind::Linear, Kind::Radial, Kind::Sweep]
-                .into_iter()
-                .enumerate()
-            {
-                let transform =
-                    Affine::translate((x as f64 * 350.0 + 50.0, y as f64 * 350.0 + 100.0));
-                square(scene, kind, transform, *extend);
-            }
-        }
-        for (i, label) in ["Pad", "Repeat", "Reflect"].iter().enumerate() {
-            let x = i as f64 * 350.0 + 50.0;
-            params.text.add(
-                scene,
-                None,
-                32.0,
-                Some(&palette::css::WHITE.into()),
-                Affine::translate((x, 70.0)),
-                label,
-            );
-        }
-        params.resolution = Some((1200.0, 1200.0).into());
     }
 
     pub(super) fn two_point_radial(scene: &mut Scene, _params: &mut SceneParams<'_>) {
@@ -1555,18 +1069,7 @@ mod impls {
             ]
         };
         scene.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &clip);
-        {
-            let text_size = 60.0 + 40.0 * (params.time as f32).sin();
-            let s = "Some clipped text!";
-            params.text.add(
-                scene,
-                None,
-                text_size,
-                None,
-                Affine::translate((110.0, 100.0)),
-                s,
-            );
-        }
+
         scene.pop_layer();
 
         let large_background_rect = Rect::new(-1000.0, -1000.0, 2000.0, 2000.0);
@@ -1663,44 +1166,6 @@ mod impls {
                     &c,
                 );
             }
-        }
-    }
-
-    pub(super) fn splash_screen(scene: &mut Scene, params: &mut SceneParams<'_>) {
-        let strings = [
-            "Vello test",
-            "  Arrow keys: switch scenes",
-            "  Space: reset transform",
-            "  S: toggle stats",
-            "  V: toggle vsync",
-            "  M: cycle AA method",
-            "  Q, E: rotate",
-        ];
-        // Tweak to make it fit with tiger
-        let a = Affine::scale(0.11) * Affine::translate((-90.0, -50.0));
-        for (i, s) in strings.iter().enumerate() {
-            let text_size = if i == 0 { 60.0 } else { 40.0 };
-            params.text.add(
-                scene,
-                None,
-                text_size,
-                None,
-                a * Affine::translate((100.0, 100.0 + 60.0 * i as f64)),
-                s,
-            );
-        }
-    }
-
-    pub(super) fn splash_with_tiger() -> impl FnMut(&mut Scene, &mut SceneParams<'_>) {
-        let contents = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../assets/Ghostscript_Tiger.svg"
-        ));
-        let mut tiger =
-            crate::svg::svg_function_of("Ghostscript Tiger".to_string(), move || contents);
-        move |scene, params| {
-            tiger(scene, params);
-            splash_screen(scene, params);
         }
     }
 

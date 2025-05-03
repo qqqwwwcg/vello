@@ -105,15 +105,6 @@ impl TestScene for MMark {
                 element.is_split ^= true;
             }
         }
-        let label = format!("mmark test: {} path elements (up/down to adjust)", n);
-        params.text.add(
-            scene,
-            None,
-            40.0,
-            None,
-            Affine::translate((100.0, 1100.0)),
-            &label,
-        );
     }
 }
 

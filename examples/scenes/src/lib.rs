@@ -18,13 +18,11 @@
 mod images;
 mod mmark;
 mod pico_svg;
-mod simple_text;
 mod svg;
 pub mod test_scenes;
 
 use clap::Args;
 pub use images::ImageCache;
-pub use simple_text::SimpleText;
 use std::path::PathBuf;
 pub use svg::{default_scene, scene_from_files};
 use test_scenes::test_scenes;
@@ -39,7 +37,6 @@ pub struct SceneParams<'a> {
     /// Will not change between runs
     // TODO: Just never block/handle this automatically?
     pub interactive: bool,
-    pub text: &'a mut SimpleText,
     pub images: &'a mut ImageCache,
     pub resolution: Option<Vec2>,
     pub base_color: Option<Color>,

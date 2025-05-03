@@ -110,7 +110,6 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     let mut images = ImageCache::new();
     let mut scene_params = SceneParams {
         time: args.time.unwrap_or(0.),
-        text: &mut text,
         images: &mut images,
         resolution: None,
         base_color: None,
