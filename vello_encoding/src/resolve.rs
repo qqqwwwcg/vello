@@ -2,15 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use bytemuck::{Pod, Zeroable};
-use peniko::{Extend, Image};
-use std::ops::Range;
-use std::sync::Arc;
+use peniko::Image;
 
-use super::{DrawTag, Encoding, PathTag, StreamOffsets, Style, Transform};
-
-use crate::glyph_cache::GlyphCache;
 use crate::image_cache::{ImageCache, Images};
-use crate::ramp_cache::{RampCache, Ramps};
+
+use super::{DrawTag, Encoding, PathTag, Style, Transform};
 
 /// Layout of a packed encoding.
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
@@ -119,7 +115,7 @@ pub fn resolve_solid_paths_only(encoding: &Encoding, packed: &mut Vec<u8>) -> La
     let SceneBufferSizes {
         buffer_size,
         path_tag_padded,
-    } = SceneBufferSizes::new(encoding, &StreamOffsets::default());
+    } = SceneBufferSizes::new(encoding);
     data.reserve(buffer_size);
     // Path tag stream
     layout.path_tag_base = size_to_words(data.len());
@@ -156,9 +152,6 @@ pub fn resolve_solid_paths_only(encoding: &Encoding, packed: &mut Vec<u8>) -> La
 /// Resolver for late bound resources.
 #[derive(Default)]
 pub struct Resolver {
-    glyph_cache: GlyphCache,
-    glyphs: Vec<Arc<Encoding>>,
-    ramp_cache: RampCache,
     image_cache: ImageCache,
     pending_images: Vec<PendingImage>,
     patches: Vec<ResolvedPatch>,
@@ -176,13 +169,13 @@ impl Resolver {
         &'a mut self,
         encoding: &Encoding,
         packed: &mut Vec<u8>,
-    ) -> (Layout, Ramps<'a>, Images<'a>) {
+    ) -> (Layout, Images<'a>) {
         let resources = &encoding.resources;
         if resources.patches.is_empty() {
             let layout = resolve_solid_paths_only(encoding, packed);
-            return (layout, Ramps::default(), Images::default());
+            return (layout, Images::default());
         }
-        let patch_sizes = self.resolve_patches(encoding);
+        self.resolve_patches(encoding);
         self.resolve_pending_images();
         let data = packed;
         data.clear();
@@ -194,31 +187,13 @@ impl Resolver {
         let SceneBufferSizes {
             buffer_size,
             path_tag_padded,
-        } = SceneBufferSizes::new(encoding, &patch_sizes);
+        } = SceneBufferSizes::new(encoding);
         data.reserve(buffer_size);
         // Path tag stream
         layout.path_tag_base = size_to_words(data.len());
         {
-            let mut pos = 0;
-            let stream = &encoding.path_tags;
-            for patch in &self.patches {
-                if let ResolvedPatch::GlyphRun { index, glyphs, .. } = patch {
-                    layout.n_paths += 1;
-                    let stream_offset = resources.glyph_runs[*index].stream_offsets.path_tags;
-                    if pos < stream_offset {
-                        data.extend_from_slice(bytemuck::cast_slice(&stream[pos..stream_offset]));
-                        pos = stream_offset;
-                    }
-                    for glyph in &self.glyphs[glyphs.clone()] {
-                        data.extend_from_slice(bytemuck::bytes_of(&PathTag::TRANSFORM));
-                        data.extend_from_slice(bytemuck::cast_slice(&glyph.path_tags));
-                    }
-                    data.extend_from_slice(bytemuck::bytes_of(&PathTag::PATH));
-                }
-            }
-            if pos < stream.len() {
-                data.extend_from_slice(bytemuck::cast_slice(&stream[pos..]));
-            }
+            data.extend_from_slice(bytemuck::cast_slice(&encoding.path_tags));
+
             for _ in 0..encoding.n_open_clips {
                 data.extend_from_slice(bytemuck::bytes_of(&PathTag::PATH));
             }
@@ -227,25 +202,7 @@ impl Resolver {
         // Path data stream
         layout.path_data_base = size_to_words(data.len());
         {
-            let mut pos = 0;
-            let stream = &encoding.path_data;
-            for patch in &self.patches {
-                if let ResolvedPatch::GlyphRun { index, glyphs, .. } = patch {
-                    let stream_offset = encoding.resources.glyph_runs[*index]
-                        .stream_offsets
-                        .path_data;
-                    if pos < stream_offset {
-                        data.extend_from_slice(bytemuck::cast_slice(&stream[pos..stream_offset]));
-                        pos = stream_offset;
-                    }
-                    for glyph in &self.glyphs[glyphs.clone()] {
-                        data.extend_from_slice(bytemuck::cast_slice(&glyph.path_data));
-                    }
-                }
-            }
-            if pos < stream.len() {
-                data.extend_from_slice(bytemuck::cast_slice(&stream[pos..]));
-            }
+            data.extend_from_slice(bytemuck::cast_slice(&encoding.path_data));
         }
         // Draw tag stream
         layout.draw_tag_base = size_to_words(data.len());
@@ -263,44 +220,25 @@ impl Resolver {
             let mut pos = 0;
             let stream = &encoding.draw_data;
             for patch in &self.patches {
-                match patch {
-                    ResolvedPatch::Ramp {
-                        draw_data_offset,
-                        ramp_id,
-                        extend,
-                    } => {
-                        if pos < *draw_data_offset {
-                            data.extend_from_slice(bytemuck::cast_slice(
-                                &encoding.draw_data[pos..*draw_data_offset],
-                            ));
-                        }
-                        let index_mode = (ramp_id << 2) | *extend as u32;
-                        data.extend_from_slice(bytemuck::bytes_of(&index_mode));
-                        pos = *draw_data_offset + 1;
-                    }
-                    ResolvedPatch::GlyphRun { .. } => {}
-                    ResolvedPatch::Image {
-                        index,
-                        draw_data_offset,
-                    } => {
-                        if pos < *draw_data_offset {
-                            data.extend_from_slice(bytemuck::cast_slice(
-                                &encoding.draw_data[pos..*draw_data_offset],
-                            ));
-                        }
-                        if let Some((x, y)) = self.pending_images[*index].xy {
-                            let xy = (x << 16) | y;
-                            data.extend_from_slice(bytemuck::bytes_of(&xy));
-                            pos = *draw_data_offset + 1;
-                        } else {
-                            // If we get here, we failed to allocate a slot for this image in the atlas.
-                            // In this case, let's zero out the dimensions so we don't attempt to render
-                            // anything.
-                            // TODO: a better strategy: texture array? downsample large images?
-                            data.extend_from_slice(&[0_u8; 8]);
-                            pos = *draw_data_offset + 2;
-                        }
-                    }
+                let index = patch.index;
+                let draw_data_offset = patch.draw_data_offset;
+
+                if pos < draw_data_offset {
+                    data.extend_from_slice(bytemuck::cast_slice(
+                        &encoding.draw_data[pos..draw_data_offset],
+                    ));
+                }
+                if let Some((x, y)) = self.pending_images[index].xy {
+                    let xy = (x << 16) | y;
+                    data.extend_from_slice(bytemuck::bytes_of(&xy));
+                    pos = draw_data_offset + 1;
+                } else {
+                    // If we get here, we failed to allocate a slot for this image in the atlas.
+                    // In this case, let's zero out the dimensions so we don't attempt to render
+                    // anything.
+                    // TODO: a better strategy: texture array? downsample large images?
+                    data.extend_from_slice(&[0_u8; 8]);
+                    pos = draw_data_offset + 2;
                 }
             }
             if pos < stream.len() {
@@ -310,172 +248,36 @@ impl Resolver {
         // Transform stream
         layout.transform_base = size_to_words(data.len());
         {
-            let mut pos = 0;
-            let stream = &encoding.transforms;
-            for patch in &self.patches {
-                if let ResolvedPatch::GlyphRun {
-                    index,
-                    glyphs: _,
-                    transform,
-                    scale,
-                } = patch
-                {
-                    let run = &resources.glyph_runs[*index];
-                    let stream_offset = run.stream_offsets.transforms;
-                    if pos < stream_offset {
-                        data.extend_from_slice(bytemuck::cast_slice(&stream[pos..stream_offset]));
-                        pos = stream_offset;
-                    }
-                    if let Some(glyph_transform) = run.glyph_transform {
-                        for glyph in &resources.glyphs[run.glyphs.clone()] {
-                            let xform = *transform
-                                * Transform {
-                                    matrix: [1.0, 0.0, 0.0, -1.0],
-                                    translation: [glyph.x * scale, glyph.y * scale],
-                                }
-                                * glyph_transform;
-                            data.extend_from_slice(bytemuck::bytes_of(&xform));
-                        }
-                    } else {
-                        for glyph in &resources.glyphs[run.glyphs.clone()] {
-                            let xform = *transform
-                                * Transform {
-                                    matrix: [1.0, 0.0, 0.0, -1.0],
-                                    translation: [glyph.x * scale, glyph.y * scale],
-                                };
-                            data.extend_from_slice(bytemuck::bytes_of(&xform));
-                        }
-                    }
-                }
-            }
-            if pos < stream.len() {
-                data.extend_from_slice(bytemuck::cast_slice(&stream[pos..]));
-            }
+            data.extend_from_slice(bytemuck::cast_slice(&encoding.transforms));
         }
         // Style stream
         layout.style_base = size_to_words(data.len());
         {
-            let mut pos = 0;
-            let stream = &encoding.styles;
-            for patch in &self.patches {
-                if let ResolvedPatch::GlyphRun { index, glyphs, .. } = patch {
-                    let stream_offset = resources.glyph_runs[*index].stream_offsets.styles;
-                    if pos < stream_offset {
-                        data.extend_from_slice(bytemuck::cast_slice(&stream[pos..stream_offset]));
-                        pos = stream_offset;
-                    }
-                    for glyph in &self.glyphs[glyphs.clone()] {
-                        data.extend_from_slice(bytemuck::cast_slice(&glyph.styles));
-                    }
-                }
-            }
-            if pos < stream.len() {
-                data.extend_from_slice(bytemuck::cast_slice(&stream[pos..]));
-            }
+            data.extend_from_slice(bytemuck::cast_slice(&encoding.styles));
         }
-        self.glyphs.clear();
+
         layout.n_draw_objects = layout.n_paths;
         assert_eq!(buffer_size, data.len());
-        (layout, self.ramp_cache.ramps(), self.image_cache.images())
+        (layout, self.image_cache.images())
     }
 
-    fn resolve_patches(&mut self, encoding: &Encoding) -> StreamOffsets {
-        self.ramp_cache.maintain();
-        self.glyphs.clear();
-        self.glyph_cache.maintain();
+    fn resolve_patches(&mut self, encoding: &Encoding) {
         self.image_cache.clear();
         self.pending_images.clear();
         self.patches.clear();
-        let mut sizes = StreamOffsets::default();
+
         let resources = &encoding.resources;
         for patch in &resources.patches {
-            match patch {
-                Patch::Ramp {
-                    draw_data_offset,
-                    stops,
-                    extend,
-                } => {
-                    let ramp_id = self.ramp_cache.add(&resources.color_stops[stops.clone()]);
-                    self.patches.push(ResolvedPatch::Ramp {
-                        draw_data_offset: *draw_data_offset + sizes.draw_data,
-                        ramp_id,
-                        extend: *extend,
-                    });
-                }
-                Patch::GlyphRun { index } => {
-                    let mut run_sizes = StreamOffsets::default();
-                    let run = &resources.glyph_runs[*index];
-                    let glyphs = &resources.glyphs[run.glyphs.clone()];
-                    let coords = &resources.normalized_coords[run.normalized_coords.clone()];
-                    let mut hint = run.hint;
-                    let mut font_size = run.font_size;
-                    let mut transform = run.transform;
-                    let mut scale = 1.0;
-                    if hint {
-                        // If hinting was requested and our transform matrix is just a uniform
-                        // scale, then adjust our font size and cancel out the matrix. Otherwise,
-                        // disable hinting entirely.
-                        if transform.matrix[0] == transform.matrix[3]
-                            && transform.matrix[1] == 0.0
-                            && transform.matrix[2] == 0.0
-                        {
-                            scale = transform.matrix[0];
-                            font_size *= scale;
-                            transform.matrix = [1.0, 0.0, 0.0, 1.0];
-                        } else {
-                            hint = false;
-                        }
-                    }
-                    let Some(mut session) = self.glyph_cache.session(
-                        &run.font,
-                        bytemuck::cast_slice(coords),
-                        font_size,
-                        hint,
-                        &run.style,
-                    ) else {
-                        continue;
-                    };
-                    let glyph_start = self.glyphs.len();
-                    for glyph in glyphs {
-                        let (encoding, stream_sizes) =
-                            session.get_or_insert(glyph.id).unwrap_or_else(|| {
-                                // HACK: We pretend that the encoding was empty.
-                                // In theory, we should be able to skip this glyph, but there is also
-                                // a corresponding entry in `resources`, which means that we would
-                                // need to make the patching process skip this glyph.
-                                (Arc::new(Encoding::new()), StreamOffsets::default())
-                            });
-                        run_sizes.add(&stream_sizes);
-                        self.glyphs.push(encoding);
-                    }
-                    let glyph_end = self.glyphs.len();
-                    run_sizes.path_tags += glyphs.len() + 1;
-                    run_sizes.transforms += glyphs.len();
-                    sizes.add(&run_sizes);
-                    self.patches.push(ResolvedPatch::GlyphRun {
-                        index: *index,
-                        glyphs: glyph_start..glyph_end,
-                        transform,
-                        scale,
-                    });
-                }
-                Patch::Image {
-                    draw_data_offset,
-                    image,
-                } => {
-                    let index = self.pending_images.len();
-                    self.pending_images.push(PendingImage {
-                        image: image.clone(),
-                        xy: None,
-                    });
-                    self.patches.push(ResolvedPatch::Image {
-                        index,
-                        draw_data_offset: *draw_data_offset + sizes.draw_data,
-                    });
-                }
-            }
+            let image = patch.image.clone();
+            let draw_data_offset = patch.draw_data_offset;
+
+            let index = self.pending_images.len();
+            self.pending_images.push(PendingImage { image, xy: None });
+            self.patches.push(ResolvedPatch {
+                index,
+                draw_data_offset,
+            });
         }
-        sizes
     }
 
     fn resolve_pending_images(&mut self) {
@@ -507,28 +309,11 @@ impl Resolver {
 
 /// Patch for a late bound resource.
 #[derive(Clone)]
-pub enum Patch {
-    /// Gradient ramp resource.
-    Ramp {
-        /// Byte offset to the ramp id in the draw data stream.
-        draw_data_offset: usize,
-        /// Range of the gradient stops in the resource set.
-        stops: Range<usize>,
-        /// Extend mode for the gradient.
-        extend: Extend,
-    },
-    /// Glyph run resource.
-    GlyphRun {
-        /// Index in the glyph run buffer.
-        index: usize,
-    },
-    /// Image resource.
-    Image {
-        /// Offset to the atlas coordinates in the draw data stream.
-        draw_data_offset: usize,
-        /// Underlying image data.
-        image: Image,
-    },
+pub struct Patch {
+    /// Offset to the atlas coordinates in the draw data stream.
+    pub draw_data_offset: usize,
+    /// Underlying image data.
+    pub image: Image,
 }
 
 /// Image to be allocated in the atlas.
@@ -539,31 +324,11 @@ struct PendingImage {
 }
 
 #[derive(Clone, Debug)]
-enum ResolvedPatch {
-    Ramp {
-        /// Offset to the ramp id in draw data stream.
-        draw_data_offset: usize,
-        /// Resolved ramp index.
-        ramp_id: u32,
-        /// Extend mode for the gradient.
-        extend: Extend,
-    },
-    GlyphRun {
-        /// Index of the original glyph run in the encoding.
-        index: usize,
-        /// Range into the glyphs encoding range buffer.
-        glyphs: Range<usize>,
-        /// Global transform.
-        transform: Transform,
-        /// Additional scale factor to apply to translation.
-        scale: f32,
-    },
-    Image {
-        /// Index of pending image element.
-        index: usize,
-        /// Offset to the atlas location in the draw data stream.
-        draw_data_offset: usize,
-    },
+pub(crate) struct ResolvedPatch {
+    /// Index of pending image element.
+    pub index: usize,
+    /// Offset to the atlas location in the draw data stream.
+    pub draw_data_offset: usize,
 }
 
 struct SceneBufferSizes {
@@ -576,19 +341,15 @@ struct SceneBufferSizes {
 impl SceneBufferSizes {
     /// Computes common scene buffer sizes for the given encoding and patch
     /// stream sizes.
-    fn new(encoding: &Encoding, patch_sizes: &StreamOffsets) -> Self {
-        let n_path_tags =
-            encoding.path_tags.len() + patch_sizes.path_tags + encoding.n_open_clips as usize;
+    fn new(encoding: &Encoding) -> Self {
+        let n_path_tags = encoding.path_tags.len() + encoding.n_open_clips as usize;
         let path_tag_padded = align_up(n_path_tags, 4 * crate::config::PATH_REDUCE_WG);
         let buffer_size = path_tag_padded
-            + slice_size_in_bytes(&encoding.path_data, patch_sizes.path_data)
-            + slice_size_in_bytes(
-                &encoding.draw_tags,
-                patch_sizes.draw_tags + encoding.n_open_clips as usize,
-            )
-            + slice_size_in_bytes(&encoding.draw_data, patch_sizes.draw_data)
-            + slice_size_in_bytes(&encoding.transforms, patch_sizes.transforms)
-            + slice_size_in_bytes(&encoding.styles, patch_sizes.styles);
+            + slice_size_in_bytes(&encoding.path_data, 0)
+            + slice_size_in_bytes(&encoding.draw_tags, encoding.n_open_clips as usize)
+            + slice_size_in_bytes(&encoding.draw_data, 0)
+            + slice_size_in_bytes(&encoding.transforms, 0)
+            + slice_size_in_bytes(&encoding.styles, 0);
         Self {
             buffer_size,
             path_tag_padded,

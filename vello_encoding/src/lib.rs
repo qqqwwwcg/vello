@@ -37,14 +37,10 @@ mod draw;
 mod encoding;
 #[cfg(feature = "bump_estimate")]
 mod estimate;
-mod glyph;
-mod glyph_cache;
 mod image_cache;
 mod mask;
 pub mod math;
-mod monoid;
 mod path;
-mod ramp_cache;
 mod resolve;
 
 pub use binning::BinHeader;
@@ -54,19 +50,16 @@ pub use config::{
     RenderConfig, WorkgroupCounts, WorkgroupSize,
 };
 pub use draw::{
-    DRAW_INFO_FLAGS_FILL_RULE_BIT, DrawBbox, DrawBeginClip, DrawBlurRoundedRect, DrawColor,
-    DrawImage, DrawLinearGradient, DrawMonoid, DrawRadialGradient, DrawSweepGradient, DrawTag,
+    DRAW_INFO_FLAGS_FILL_RULE_BIT, DrawBbox, DrawBeginClip, DrawColor, DrawImage, DrawMonoid,
+    DrawTag,
 };
-pub use encoding::{Encoding, Resources, StreamOffsets};
-pub use glyph::{Glyph, GlyphRun};
+pub use encoding::{Encoding, Resources};
 pub use mask::{make_mask_lut, make_mask_lut_16};
 pub use math::Transform;
-pub use monoid::Monoid;
 pub use path::{
     Cubic, LineSoup, Path, PathBbox, PathEncoder, PathMonoid, PathSegment, PathSegmentType,
     PathTag, SegmentCount, Style, Tile,
 };
-pub use ramp_cache::Ramps;
 pub use resolve::{Layout, Patch, Resolver, resolve_solid_paths_only};
 
 #[cfg(feature = "bump_estimate")]

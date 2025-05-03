@@ -1,15 +1,10 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use super::{
-    DrawBlurRoundedRect, DrawColor, DrawImage, DrawLinearGradient, DrawRadialGradient,
-    DrawSweepGradient, DrawTag, Glyph, GlyphRun, NormalizedCoord, Patch, PathEncoder, PathTag,
-    Style, Transform,
-};
+use super::{DrawColor, DrawImage, DrawTag, Patch, PathEncoder, PathTag, Style, Transform};
 
-use peniko::color::{DynamicColor, palette};
 use peniko::kurbo::{Shape, Stroke};
-use peniko::{BlendMode, BrushRef, ColorStop, Extend, Fill, GradientKind, Image};
+use peniko::{BlendMode, BrushRef, Fill, Image};
 
 /// Encoded data streams for a scene.
 ///
@@ -87,63 +82,10 @@ impl Encoding {
 
     /// Appends another encoding to this one with an optional transform.
     pub fn append(&mut self, other: &Self, transform: &Option<Transform>) {
-        let glyph_runs_base = {
-            let offsets = self.stream_offsets();
-            let stops_base = self.resources.color_stops.len();
-            let glyph_runs_base = self.resources.glyph_runs.len();
-            let glyphs_base = self.resources.glyphs.len();
-            let coords_base = self.resources.normalized_coords.len();
-            self.resources
-                .glyphs
-                .extend_from_slice(&other.resources.glyphs);
-            self.resources
-                .normalized_coords
-                .extend_from_slice(&other.resources.normalized_coords);
-            self.resources
-                .glyph_runs
-                .extend(other.resources.glyph_runs.iter().cloned().map(|mut run| {
-                    run.glyphs.start += glyphs_base;
-                    run.glyphs.end += glyphs_base;
-                    run.normalized_coords.start += coords_base;
-                    run.normalized_coords.end += coords_base;
-                    run.stream_offsets.path_tags += offsets.path_tags;
-                    run.stream_offsets.path_data += offsets.path_data;
-                    run.stream_offsets.draw_tags += offsets.draw_tags;
-                    run.stream_offsets.draw_data += offsets.draw_data;
-                    run.stream_offsets.transforms += offsets.transforms;
-                    run.stream_offsets.styles += offsets.styles;
-                    run
-                }));
+        {
             self.resources
                 .patches
-                .extend(other.resources.patches.iter().map(|patch| match patch {
-                    Patch::Ramp {
-                        draw_data_offset: offset,
-                        stops,
-                        extend,
-                    } => {
-                        let stops = stops.start + stops_base..stops.end + stops_base;
-                        Patch::Ramp {
-                            draw_data_offset: offset + offsets.draw_data,
-                            stops,
-                            extend: *extend,
-                        }
-                    }
-                    Patch::GlyphRun { index } => Patch::GlyphRun {
-                        index: index + glyph_runs_base,
-                    },
-                    Patch::Image {
-                        image,
-                        draw_data_offset,
-                    } => Patch::Image {
-                        image: image.clone(),
-                        draw_data_offset: *draw_data_offset + offsets.draw_data,
-                    },
-                }));
-            self.resources
-                .color_stops
-                .extend_from_slice(&other.resources.color_stops);
-            glyph_runs_base
+                .extend(other.resources.patches.clone());
         };
         self.path_tags.extend_from_slice(&other.path_tags);
         self.path_data.extend_from_slice(&other.path_data);
@@ -157,25 +99,10 @@ impl Encoding {
         if let Some(transform) = *transform {
             self.transforms
                 .extend(other.transforms.iter().map(|x| transform * *x));
-            for run in &mut self.resources.glyph_runs[glyph_runs_base..] {
-                run.transform = transform * run.transform;
-            }
         } else {
             self.transforms.extend_from_slice(&other.transforms);
         }
         self.styles.extend_from_slice(&other.styles);
-    }
-
-    /// Returns a snapshot of the current stream offsets.
-    pub fn stream_offsets(&self) -> StreamOffsets {
-        StreamOffsets {
-            path_tags: self.path_tags.len(),
-            path_data: self.path_data.len(),
-            draw_tags: self.draw_tags.len(),
-            draw_data: self.draw_data.len(),
-            transforms: self.transforms.len(),
-            styles: self.styles.len(),
-        }
     }
 
     /// Encodes a fill style.
@@ -262,7 +189,6 @@ impl Encoding {
         reason = "False positive: https://github.com/rust-lang/rust/issues/129255"
     )]
     pub fn encode_brush<'b>(&mut self, brush: impl Into<BrushRef<'b>>, alpha: f32) {
-        use super::math::point_to_f32;
         match brush.into() {
             BrushRef::Solid(color) => {
                 let color = if alpha != 1.0 {
@@ -272,57 +198,7 @@ impl Encoding {
                 };
                 self.encode_color(color);
             }
-            BrushRef::Gradient(gradient) => match gradient.kind {
-                GradientKind::Linear { start, end } => {
-                    self.encode_linear_gradient(
-                        DrawLinearGradient {
-                            index: 0,
-                            p0: point_to_f32(start),
-                            p1: point_to_f32(end),
-                        },
-                        gradient.stops.iter().copied(),
-                        alpha,
-                        gradient.extend,
-                    );
-                }
-                GradientKind::Radial {
-                    start_center,
-                    start_radius,
-                    end_center,
-                    end_radius,
-                } => {
-                    self.encode_radial_gradient(
-                        DrawRadialGradient {
-                            index: 0,
-                            p0: point_to_f32(start_center),
-                            p1: point_to_f32(end_center),
-                            r0: start_radius,
-                            r1: end_radius,
-                        },
-                        gradient.stops.iter().copied(),
-                        alpha,
-                        gradient.extend,
-                    );
-                }
-                GradientKind::Sweep {
-                    center,
-                    start_angle,
-                    end_angle,
-                } => {
-                    use core::f32::consts::TAU;
-                    self.encode_sweep_gradient(
-                        DrawSweepGradient {
-                            index: 0,
-                            p0: point_to_f32(center),
-                            t0: start_angle / TAU,
-                            t1: end_angle / TAU,
-                        },
-                        gradient.stops.iter().copied(),
-                        alpha,
-                        gradient.extend,
-                    );
-                }
-            },
+            BrushRef::Gradient(_) => {}
             BrushRef::Image(image) => {
                 self.encode_image(image, alpha);
             }
@@ -337,83 +213,13 @@ impl Encoding {
         self.draw_data.push(rgba);
     }
 
-    /// Encodes a linear gradient brush.
-    pub fn encode_linear_gradient(
-        &mut self,
-        gradient: DrawLinearGradient,
-        color_stops: impl Iterator<Item = ColorStop>,
-        alpha: f32,
-        extend: Extend,
-    ) {
-        match self.add_ramp(color_stops, alpha, extend) {
-            RampStops::Empty => self.encode_color(palette::css::TRANSPARENT),
-            RampStops::One(color) => {
-                self.encode_color(color);
-            }
-            RampStops::Many => {
-                self.draw_tags.push(DrawTag::LINEAR_GRADIENT);
-                self.draw_data
-                    .extend_from_slice(bytemuck::cast_slice(bytemuck::bytes_of(&gradient)));
-            }
-        }
-    }
-
-    /// Encodes a radial gradient brush.
-    pub fn encode_radial_gradient(
-        &mut self,
-        gradient: DrawRadialGradient,
-        color_stops: impl Iterator<Item = ColorStop>,
-        alpha: f32,
-        extend: Extend,
-    ) {
-        // Match Skia's epsilon for radii comparison
-        const SKIA_EPSILON: f32 = 1.0 / (1 << 12) as f32;
-        if gradient.p0 == gradient.p1 && (gradient.r0 - gradient.r1).abs() < SKIA_EPSILON {
-            self.encode_color(palette::css::TRANSPARENT);
-            return;
-        }
-        match self.add_ramp(color_stops, alpha, extend) {
-            RampStops::Empty => self.encode_color(palette::css::TRANSPARENT),
-            RampStops::One(color) => self.encode_color(color),
-            RampStops::Many => {
-                self.draw_tags.push(DrawTag::RADIAL_GRADIENT);
-                self.draw_data
-                    .extend_from_slice(bytemuck::cast_slice(bytemuck::bytes_of(&gradient)));
-            }
-        }
-    }
-
-    /// Encodes a radial gradient brush.
-    pub fn encode_sweep_gradient(
-        &mut self,
-        gradient: DrawSweepGradient,
-        color_stops: impl Iterator<Item = ColorStop>,
-        alpha: f32,
-        extend: Extend,
-    ) {
-        const SKIA_DEGENERATE_THRESHOLD: f32 = 1.0 / (1 << 15) as f32;
-        if (gradient.t0 - gradient.t1).abs() < SKIA_DEGENERATE_THRESHOLD {
-            self.encode_color(palette::css::TRANSPARENT);
-            return;
-        }
-        match self.add_ramp(color_stops, alpha, extend) {
-            RampStops::Empty => self.encode_color(palette::css::TRANSPARENT),
-            RampStops::One(color) => self.encode_color(color),
-            RampStops::Many => {
-                self.draw_tags.push(DrawTag::SWEEP_GRADIENT);
-                self.draw_data
-                    .extend_from_slice(bytemuck::cast_slice(bytemuck::bytes_of(&gradient)));
-            }
-        }
-    }
-
     /// Encodes an image brush.
     pub fn encode_image(&mut self, image: &Image, alpha: f32) {
         let alpha = (alpha * image.alpha * 255.0).round() as u8;
         // TODO: feed the alpha multiplier through the full pipeline for consistency
         // with other brushes?
         // Tracked in https://github.com/linebender/vello/issues/692
-        self.resources.patches.push(Patch::Image {
+        self.resources.patches.push(Patch {
             image: image.clone(),
             draw_data_offset: self.draw_data.len(),
         });
@@ -427,28 +233,6 @@ impl Encoding {
                     | ((image.y_extend as u32) << 8)
                     | alpha as u32,
             })));
-    }
-
-    // Encodes a blurred rounded rectangle brush.
-    pub fn encode_blurred_rounded_rect(
-        &mut self,
-        color: impl Into<DrawColor>,
-        width: f32,
-        height: f32,
-        radius: f32,
-        std_dev: f32,
-    ) {
-        self.draw_tags.push(DrawTag::BLUR_RECT);
-        self.draw_data
-            .extend_from_slice(bytemuck::cast_slice(bytemuck::bytes_of(
-                &DrawBlurRoundedRect {
-                    color: color.into(),
-                    width,
-                    height,
-                    radius,
-                    std_dev,
-                },
-            )));
     }
 
     /// Encodes a begin clip command.
@@ -487,46 +271,6 @@ impl Encoding {
         let len = self.path_tags.len();
         self.path_tags.swap(len - 1, len - 2);
     }
-
-    fn add_ramp(
-        &mut self,
-        color_stops: impl Iterator<Item = ColorStop>,
-        alpha: f32,
-        extend: Extend,
-    ) -> RampStops {
-        let offset = self.draw_data.len();
-        let stops_start = self.resources.color_stops.len();
-        if alpha != 1.0 {
-            self.resources
-                .color_stops
-                .extend(color_stops.map(|stop| stop.multiply_alpha(alpha)));
-        } else {
-            self.resources.color_stops.extend(color_stops);
-        }
-        let stops_end = self.resources.color_stops.len();
-        match stops_end - stops_start {
-            0 => RampStops::Empty,
-            1 => RampStops::One(self.resources.color_stops.pop().unwrap().color),
-            _ => {
-                self.resources.patches.push(Patch::Ramp {
-                    draw_data_offset: offset,
-                    stops: stops_start..stops_end,
-                    extend,
-                });
-                RampStops::Many
-            }
-        }
-    }
-}
-
-/// Result for adding a sequence of color stops.
-enum RampStops {
-    /// Color stop sequence was empty.
-    Empty,
-    /// Contained a single color stop.
-    One(DynamicColor),
-    /// More than one color stop.
-    Many,
 }
 
 /// Encoded data for late bound resources.
@@ -534,14 +278,6 @@ enum RampStops {
 pub struct Resources {
     /// Draw data patches for late bound resources.
     pub patches: Vec<Patch>,
-    /// Color stop collection for gradients.
-    pub color_stops: Vec<ColorStop>,
-    /// Positioned glyph buffer.
-    pub glyphs: Vec<Glyph>,
-    /// Sequences of glyphs.
-    pub glyph_runs: Vec<GlyphRun>,
-    /// Normalized coordinate buffer for variable fonts.
-    pub normalized_coords: Vec<NormalizedCoord>,
 }
 
 impl Resources {
@@ -550,64 +286,5 @@ impl Resources {
     // in graphics contexts.
     fn reset(&mut self) {
         self.patches.clear();
-        self.color_stops.clear();
-        self.glyphs.clear();
-        self.glyph_runs.clear();
-        self.normalized_coords.clear();
-    }
-}
-
-/// Snapshot of offsets for encoded streams.
-#[derive(Copy, Clone, Default, Debug)]
-pub struct StreamOffsets {
-    /// Current length of path tag stream.
-    pub path_tags: usize,
-    /// Current length of path data stream.
-    pub path_data: usize,
-    /// Current length of draw tag stream.
-    pub draw_tags: usize,
-    /// Current length of draw data stream.
-    pub draw_data: usize,
-    /// Current length of transform stream.
-    pub transforms: usize,
-    /// Current length of style stream.
-    pub styles: usize,
-}
-
-impl StreamOffsets {
-    pub(crate) fn add(&mut self, other: &Self) {
-        self.path_tags += other.path_tags;
-        self.path_data += other.path_data;
-        self.draw_tags += other.draw_tags;
-        self.draw_data += other.draw_data;
-        self.transforms += other.transforms;
-        self.styles += other.styles;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use peniko::{Extend, ImageQuality};
-
-    #[test]
-    fn ensure_image_quality_values() {
-        assert_eq!(ImageQuality::Low as u32, 0);
-        assert_eq!(ImageQuality::Medium as u32, 1);
-        assert_eq!(ImageQuality::High as u32, 2);
-        // exhaustive match to catch new variants
-        match ImageQuality::Low {
-            ImageQuality::Low | ImageQuality::Medium | ImageQuality::High => {}
-        }
-    }
-
-    #[test]
-    fn ensure_extend_values() {
-        assert_eq!(Extend::Pad as u32, 0);
-        assert_eq!(Extend::Repeat as u32, 1);
-        assert_eq!(Extend::Reflect as u32, 2);
-        // exhaustive match to catch new variants
-        match Extend::Pad {
-            Extend::Pad | Extend::Repeat | Extend::Reflect => {}
-        }
     }
 }

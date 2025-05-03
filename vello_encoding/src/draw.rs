@@ -7,8 +7,6 @@ use peniko::{
     color::{AlphaColor, ColorSpace, DynamicColor, OpaqueColor, PremulColor, Srgb},
 };
 
-use super::Monoid;
-
 /// Draw tag representation.
 #[derive(Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
@@ -114,48 +112,6 @@ impl<CS: ColorSpace> From<PremulColor<CS>> for DrawColor {
     }
 }
 
-/// Draw data for a linear gradient.
-#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
-#[repr(C)]
-pub struct DrawLinearGradient {
-    /// Ramp index.
-    pub index: u32,
-    /// Start point.
-    pub p0: [f32; 2],
-    /// End point.
-    pub p1: [f32; 2],
-}
-
-/// Draw data for a radial gradient.
-#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
-#[repr(C)]
-pub struct DrawRadialGradient {
-    /// Ramp index.
-    pub index: u32,
-    /// Start point.
-    pub p0: [f32; 2],
-    /// End point.
-    pub p1: [f32; 2],
-    /// Start radius.
-    pub r0: f32,
-    /// End radius.
-    pub r1: f32,
-}
-
-/// Draw data for a sweep gradient.
-#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
-#[repr(C)]
-pub struct DrawSweepGradient {
-    /// Ramp index.
-    pub index: u32,
-    /// Center point.
-    pub p0: [f32; 2],
-    /// Normalized start angle.
-    pub t0: f32,
-    /// Normalized end angle.
-    pub t1: f32,
-}
-
 /// Draw data for an image.
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
 #[repr(C)]
@@ -167,22 +123,6 @@ pub struct DrawImage {
     /// Packed quality, extend mode and 8-bit alpha (bits `qqxxyyaaaaaaaa`,
     /// 18 unused prefix bits).
     pub sample_alpha: u32,
-}
-
-/// Draw data for a blurred rounded rectangle.
-#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
-#[repr(C)]
-pub struct DrawBlurRoundedRect {
-    /// Solid color brush.
-    pub color: DrawColor,
-    /// Rectangle width.
-    pub width: f32,
-    /// Rectangle height.
-    pub height: f32,
-    /// Rectangle corner radius.
-    pub radius: f32,
-    /// Standard deviation of gaussian filter.
-    pub std_dev: f32,
 }
 
 /// Draw data for a clip or layer.
@@ -217,52 +157,4 @@ pub struct DrawMonoid {
     pub scene_offset: u32,
     // The offset of the associated info.
     pub info_offset: u32,
-}
-
-impl Monoid for DrawMonoid {
-    type SourceValue = DrawTag;
-
-    fn new(tag: DrawTag) -> Self {
-        Self {
-            path_ix: (tag != DrawTag::NOP) as u32,
-            clip_ix: tag.0 & 1,
-            scene_offset: (tag.0 >> 2) & 0x7,
-            info_offset: (tag.0 >> 6) & 0xf,
-        }
-    }
-
-    fn combine(&self, other: &Self) -> Self {
-        Self {
-            path_ix: self.path_ix + other.path_ix,
-            clip_ix: self.clip_ix + other.clip_ix,
-            scene_offset: self.scene_offset + other.scene_offset,
-            info_offset: self.info_offset + other.info_offset,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use peniko::Color;
-
-    use super::DrawColor;
-
-    #[test]
-    fn draw_color_endianness() {
-        // `DrawColor` should be packed little-endian with red the least significant byte.
-        //
-        // If this changes intentionally, the `DrawColor` docs also need updating.
-        let c = Color::from_rgba8(0x00, 0xca, 0xfe, 0xff);
-        assert_eq!(
-            bytemuck::bytes_of(&DrawColor::from(c)),
-            [0x00, 0xca, 0xfe, 0xff]
-        );
-    }
-
-    #[test]
-    fn draw_color_premultiplied() {
-        // If this changes intentionally, the `DrawColor` docs also need updating.
-        let c = Color::from_rgba8(0x00, 0xca, 0xfe, 0x00);
-        assert_eq!(DrawColor::from(c).rgba, 0);
-    }
 }

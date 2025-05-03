@@ -5,8 +5,6 @@ use bytemuck::{Pod, Zeroable};
 use peniko::Fill;
 use peniko::kurbo::{Cap, Join, Shape, Stroke};
 
-use super::Monoid;
-
 /// Data structure encoding stroke or fill style.
 #[derive(Clone, Copy, Debug, Zeroable, Pod, Default, PartialEq)]
 #[repr(C)]
@@ -322,38 +320,6 @@ pub struct PathMonoid {
     pub style_ix: u32,
     /// Index of containing path.
     pub path_ix: u32,
-}
-
-impl Monoid for PathMonoid {
-    type SourceValue = u32;
-
-    /// Reduces a packed 32-bit word containing 4 tags.
-    fn new(tag_word: u32) -> Self {
-        let mut c = Self::default();
-        let point_count = tag_word & 0x3030303;
-        c.pathseg_ix = ((point_count * 7) & 0x4040404).count_ones();
-        c.trans_ix = (tag_word & (PathTag::TRANSFORM.0 as u32 * 0x1010101)).count_ones();
-        let n_points = point_count + ((tag_word >> 2) & 0x1010101);
-        let mut a = n_points + (n_points & (((tag_word >> 3) & 0x1010101) * 15));
-        a += a >> 8;
-        a += a >> 16;
-        c.pathseg_offset = a & 0xff;
-        c.path_ix = (tag_word & (PathTag::PATH.0 as u32 * 0x1010101)).count_ones();
-        let style_size = (size_of::<Style>() / size_of::<u32>()) as u32;
-        c.style_ix = (tag_word & (PathTag::STYLE.0 as u32 * 0x1010101)).count_ones() * style_size;
-        c
-    }
-
-    /// Monoid combination.
-    fn combine(&self, other: &Self) -> Self {
-        Self {
-            trans_ix: self.trans_ix + other.trans_ix,
-            pathseg_ix: self.pathseg_ix + other.pathseg_ix,
-            pathseg_offset: self.pathseg_offset + other.pathseg_offset,
-            style_ix: self.style_ix + other.style_ix,
-            path_ix: self.path_ix + other.path_ix,
-        }
-    }
 }
 
 /// Cubic path segment.
@@ -833,40 +799,3 @@ impl skrifa::outline::OutlinePen for PathEncoder<'_> {
 }
 
 const EPSILON: f32 = 1e-12;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_fill_style() {
-        assert_eq!(Some(Fill::NonZero), Style::from_fill(Fill::NonZero).fill());
-        assert_eq!(Some(Fill::EvenOdd), Style::from_fill(Fill::EvenOdd).fill());
-        assert_eq!(None, Style::from_stroke(&Stroke::default()).fill());
-    }
-
-    #[test]
-    fn test_stroke_style() {
-        assert_eq!(None, Style::from_fill(Fill::NonZero).stroke_width());
-        assert_eq!(None, Style::from_fill(Fill::EvenOdd).stroke_width());
-        let caps = [Cap::Butt, Cap::Square, Cap::Round];
-        let joins = [Join::Bevel, Join::Miter, Join::Round];
-        for start in caps {
-            for end in caps {
-                for join in joins {
-                    let stroke = Stroke::new(1.0)
-                        .with_start_cap(start)
-                        .with_end_cap(end)
-                        .with_join(join)
-                        .with_miter_limit(0.);
-                    let encoded = Style::from_stroke(&stroke);
-                    assert_eq!(Some(stroke.width), encoded.stroke_width());
-                    assert_eq!(Some(stroke.join), encoded.stroke_join());
-                    assert_eq!(Some(stroke.start_cap), encoded.stroke_start_cap());
-                    assert_eq!(Some(stroke.end_cap), encoded.stroke_end_cap());
-                    assert_eq!(Some(0), encoded.stroke_miter_limit());
-                }
-            }
-        }
-    }
-}

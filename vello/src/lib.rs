@@ -140,8 +140,7 @@ pub use peniko::kurbo;
 #[cfg(feature = "wgpu")]
 pub use wgpu;
 
-pub use scene::{DrawGlyphs, Scene};
-pub use vello_encoding::{Glyph, NormalizedCoord};
+pub use scene::Scene;
 
 use low_level::ShaderId;
 #[cfg(feature = "wgpu")]
@@ -153,8 +152,6 @@ use vello_encoding::Resolver;
 #[cfg(feature = "wgpu")]
 use wgpu_engine::{ExternalResource, WgpuEngine};
 
-#[cfg(feature = "wgpu")]
-use std::{num::NonZeroUsize, sync::atomic::AtomicBool};
 #[cfg(feature = "wgpu")]
 use wgpu::{Device, Queue, TextureView};
 

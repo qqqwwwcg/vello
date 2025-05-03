@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use std::borrow::Cow;
-use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
@@ -17,14 +16,6 @@ use crate::{
     low_level::{BufferProxy, Command, ImageProxy, Recording, ResourceId, ResourceProxy, ShaderId},
     recording::BindType,
 };
-
-#[cfg(not(target_arch = "wasm32"))]
-struct UninitialisedShader {
-    wgsl: Cow<'static, str>,
-    label: &'static str,
-    entries: Vec<wgpu::BindGroupLayoutEntry>,
-    shader_id: ShaderId,
-}
 
 #[derive(Default)]
 pub(crate) struct WgpuEngine {
@@ -45,15 +36,12 @@ struct WgpuShader {
 }
 
 pub(crate) enum ExternalResource<'a> {
-    #[expect(unused, reason = "No buffers are accepted as arguments currently")]
-    Buffer(BufferProxy, &'a Buffer),
     Image(ImageProxy, &'a TextureView),
 }
 
 /// A buffer can exist either on the GPU or on CPU.
 enum MaterializedBuffer {
     Gpu(Buffer),
-    Cpu(RefCell<Vec<u8>>),
 }
 
 struct BindMapBuffer {
@@ -157,9 +145,6 @@ impl WgpuEngine {
         for command in &recording.commands {
             match command {
                 Command::Upload(buf_proxy, bytes) => {
-                    transient_map
-                        .bufs
-                        .insert(buf_proxy.id, TransientBuf::Cpu(bytes));
                     // TODO: restrict VERTEX usage to "debug_layers" feature?
                     let usage = BufferUsages::COPY_SRC
                         | BufferUsages::COPY_DST
@@ -174,9 +159,6 @@ impl WgpuEngine {
                     self.bind_map.insert_buf(buf_proxy, buf);
                 }
                 Command::UploadUniform(buf_proxy, bytes) => {
-                    transient_map
-                        .bufs
-                        .insert(buf_proxy.id, TransientBuf::Cpu(bytes));
                     let usage = BufferUsages::UNIFORM | BufferUsages::COPY_DST;
                     // Same consideration as above
                     let buf = self
@@ -322,13 +304,7 @@ impl WgpuEngine {
                         &wgpu_shader.bind_group_layout,
                         bindings,
                     );
-                    transient_map.materialize_gpu_buf_for_indirect(
-                        &mut self.bind_map,
-                        &mut self.pool,
-                        device,
-                        queue,
-                        proxy,
-                    );
+
                     let mut cpass = encoder.begin_compute_pass(&ComputePassDescriptor::default());
 
                     let pipeline = &wgpu_shader.pipeline;
@@ -357,13 +333,6 @@ impl WgpuEngine {
                     if let Some(buf) = self.bind_map.get_buf(*proxy) {
                         match &buf.buffer {
                             MaterializedBuffer::Gpu(b) => encoder.clear_buffer(b, *offset, *size),
-                            MaterializedBuffer::Cpu(b) => {
-                                let mut slice = &mut b.borrow_mut()[*offset as usize..];
-                                if let Some(size) = size {
-                                    slice = &mut slice[..*size as usize];
-                                }
-                                slice.fill(0);
-                            }
                         }
                     } else {
                         self.bind_map.pending_clears.insert(proxy.id);
@@ -609,31 +578,6 @@ impl ResourcePool {
     }
 }
 
-impl BindMapBuffer {
-    // Upload a buffer from CPU to GPU if needed.
-    //
-    // Note data flow is one way only, from CPU to GPU. Once this method is
-    // called, the buffer is no longer materialized on CPU, and cannot be
-    // accessed from a CPU shader.
-    fn upload_if_needed(
-        &mut self,
-        proxy: &BufferProxy,
-        device: &Device,
-        queue: &Queue,
-        pool: &mut ResourcePool,
-    ) {
-        if let MaterializedBuffer::Cpu(cpu_buf) = &self.buffer {
-            let usage = BufferUsages::COPY_SRC
-                | BufferUsages::COPY_DST
-                | BufferUsages::STORAGE
-                | BufferUsages::INDIRECT;
-            let buf = pool.get_buf(proxy.size, proxy.name, usage, device);
-            queue.write_buffer(&buf, 0, &cpu_buf.borrow());
-            self.buffer = MaterializedBuffer::Gpu(buf);
-        }
-    }
-}
-
 impl<'a> TransientBindMap<'a> {
     /// Create new transient bind map, seeded from external resources
     fn new(external_resources: &'a [ExternalResource<'_>]) -> Self {
@@ -641,30 +585,12 @@ impl<'a> TransientBindMap<'a> {
         let mut images = HashMap::default();
         for resource in external_resources {
             match resource {
-                ExternalResource::Buffer(proxy, gpu_buf) => {
-                    bufs.insert(proxy.id, TransientBuf::Gpu(gpu_buf));
-                }
                 ExternalResource::Image(proxy, gpu_image) => {
                     images.insert(proxy.id, *gpu_image);
                 }
             }
         }
         TransientBindMap { bufs, images }
-    }
-
-    fn materialize_gpu_buf_for_indirect(
-        &mut self,
-        bind_map: &mut BindMap,
-        pool: &mut ResourcePool,
-        device: &Device,
-        queue: &Queue,
-        buf: &BufferProxy,
-    ) {
-        if !self.bufs.contains_key(&buf.id) {
-            if let Some(b) = bind_map.buf_map.get_mut(&buf.id) {
-                b.upload_if_needed(buf, device, queue, pool);
-            }
-        }
     }
 
     fn create_bind_group(
@@ -705,9 +631,7 @@ impl<'a> TransientBindMap<'a> {
                                 label: proxy.name,
                             });
                         }
-                        Entry::Occupied(mut o) => {
-                            o.get_mut().upload_if_needed(proxy, device, queue, pool);
-                        }
+                        _ => {}
                     }
                 }
                 ResourceProxy::Image(proxy) => {

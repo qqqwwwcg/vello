@@ -42,15 +42,12 @@ var<storage, read_write> blend_spill: array<u32>;
 var output: texture_storage_2d<rgba8unorm, write>;
 
 @group(0) @binding(6)
-var gradients: texture_2d<f32>;
-
-@group(0) @binding(7)
 var image_atlas: texture_2d<f32>;
 
 // MSAA-only bindings and utilities
 #ifdef msaa
 
-const MASK_LUT_INDEX: u32 = 8;
+const MASK_LUT_INDEX: u32 = 7;
 
 #ifdef msaa8
 const MASK_WIDTH = 32u;
@@ -1057,96 +1054,6 @@ fn main(
                     let alpha = scale * (erf7(inv_std_dev * (min_edge + d)) - erf7(inv_std_dev * d));
 
                     let fg_rgba = blur_rgba * alpha;
-                    let fg_i = fg_rgba * area[i];
-                    rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
-                }
-                cmd_ix += 3u;
-            }
-            case CMD_LIN_GRAD: {
-                let lin = read_lin_grad(cmd_ix);
-                let d = lin.line_x * xy.x + lin.line_y * xy.y + lin.line_c;
-                for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-                    let my_d = d + lin.line_x * f32(i);
-                    let x = i32(round(extend_mode(my_d, lin.extend_mode) * f32(GRADIENT_WIDTH - 1)));
-                    let fg_rgba = textureLoad(gradients, vec2(x, i32(lin.index)), 0);
-                    let fg_i = fg_rgba * area[i];
-                    rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
-                }
-                cmd_ix += 3u;
-            }
-            case CMD_RAD_GRAD: {
-                let rad = read_rad_grad(cmd_ix);
-                let focal_x = rad.focal_x;
-                let radius = rad.radius;
-                let is_strip = rad.kind == RAD_GRAD_KIND_STRIP;
-                let is_circular = rad.kind == RAD_GRAD_KIND_CIRCULAR;
-                let is_focal_on_circle = rad.kind == RAD_GRAD_KIND_FOCAL_ON_CIRCLE;
-                let is_swapped = (rad.flags & RAD_GRAD_SWAPPED) != 0u;
-                let r1_recip = select(1.0 / radius, 0.0, is_circular);
-                let less_scale = select(1.0, -1.0, is_swapped || (1.0 - focal_x) < 0.0);
-                let t_sign = sign(1.0 - focal_x);
-                for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-                    let my_xy = vec2(xy.x + f32(i), xy.y);
-                    let local_xy = rad.matrx.xy * my_xy.x + rad.matrx.zw * my_xy.y + rad.xlat;
-                    let x = local_xy.x;
-                    let y = local_xy.y;
-                    let xx = x * x;
-                    let yy = y * y;
-                    var t = 0.0;
-                    var is_valid = true;
-                    if is_strip {
-                        let a = radius - yy;
-                        t = sqrt(a) + x;
-                        is_valid = a >= 0.0;
-                    } else if is_focal_on_circle {
-                        t = (xx + yy) / x;
-                        is_valid = t >= 0.0 && x != 0.0;
-                    } else if radius > 1.0 {
-                        t = sqrt(xx + yy) - x * r1_recip;
-                    } else { // radius < 1.0
-                        let a = xx - yy;
-                        t = less_scale * sqrt(a) - x * r1_recip;
-                        is_valid = a >= 0.0 && t >= 0.0;
-                    }
-                    if is_valid {
-                        t = extend_mode(focal_x + t_sign * t, rad.extend_mode);
-                        t = select(t, 1.0 - t, is_swapped);
-                        let x = i32(round(t * f32(GRADIENT_WIDTH - 1)));
-                        let fg_rgba = textureLoad(gradients, vec2(x, i32(rad.index)), 0);
-                        let fg_i = fg_rgba * area[i];
-                        rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
-                    }
-                }
-                cmd_ix += 3u;
-            }
-            case CMD_SWEEP_GRAD: {
-                let sweep = read_sweep_grad(cmd_ix);
-                let scale = 1.0 / (sweep.t1 - sweep.t0);
-                for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-                    let my_xy = vec2(xy.x + f32(i), xy.y);
-                    let local_xy = sweep.matrx.xy * my_xy.x + sweep.matrx.zw * my_xy.y + sweep.xlat;
-                    let x = local_xy.x;
-                    let y = local_xy.y;
-                    // xy_to_unit_angle from Skia:
-                    // See <https://github.com/google/skia/blob/30bba741989865c157c7a997a0caebe94921276b/src/opts/SkRasterPipeline_opts.h#L5859>
-                    let xabs = abs(x);
-                    let yabs = abs(y);
-                    let slope = min(xabs, yabs) / max(xabs, yabs);
-                    let s = slope * slope;
-                    // again, from Skia:
-                    // Use a 7th degree polynomial to approximate atan.
-                    // This was generated using sollya.gforge.inria.fr.
-                    // A float optimized polynomial was generated using the following command.
-                    // P1 = fpminimax((1/(2*Pi))*atan(x),[|1,3,5,7|],[|24...|],[2^(-40),1],relative);
-                    var phi = slope * (0.15912117063999176025390625f + s * (-5.185396969318389892578125e-2f + s * (2.476101927459239959716796875e-2f + s * (-7.0547382347285747528076171875e-3f))));
-                    phi = select(phi, 1.0 / 4.0 - phi, xabs < yabs);
-                    phi = select(phi, 1.0 / 2.0 - phi, x < 0.0);
-                    phi = select(phi, 1.0 - phi, y < 0.0);
-                    phi = select(phi, 0.0, phi != phi); // check for NaN
-                    phi = (phi - sweep.t0) * scale;
-                    let t = extend_mode(phi, sweep.extend_mode);
-                    let ramp_x = i32(round(t * f32(GRADIENT_WIDTH - 1)));
-                    let fg_rgba = textureLoad(gradients, vec2(ramp_x, i32(sweep.index)), 0);
                     let fg_i = fg_rgba * area[i];
                     rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
                 }

@@ -28,7 +28,6 @@ struct FineResources {
     tile_buf: ResourceProxy,
     segments_buf: ResourceProxy,
     ptcl_buf: ResourceProxy,
-    gradient_image: ResourceProxy,
     info_bin_data_buf: ResourceProxy,
     image_atlas: ResourceProxy,
     blend_spill_buf: ResourceProxy,
@@ -95,18 +94,8 @@ impl Render {
         let mut recording = Recording::default();
         let mut packed = vec![];
 
-        let (layout, ramps, images) = resolver.resolve(encoding, &mut packed);
-        let gradient_image = if ramps.height == 0 {
-            ResourceProxy::new_image(1, 1, ImageFormat::Rgba8)
-        } else {
-            let data: &[u8] = bytemuck::cast_slice(ramps.data);
-            ResourceProxy::Image(recording.upload_image(
-                ramps.width,
-                ramps.height,
-                ImageFormat::Rgba8,
-                data,
-            ))
-        };
+        let (layout, images) = resolver.resolve(encoding, &mut packed);
+
         let image_atlas = if images.images.is_empty() {
             ImageProxy::new(1, 1, ImageFormat::Rgba8)
         } else {
@@ -433,7 +422,6 @@ impl Render {
             tile_buf,
             segments_buf,
             ptcl_buf,
-            gradient_image,
             info_bin_data_buf,
             blend_spill_buf: ResourceProxy::Buffer(blend_spill_buf),
             image_atlas: ResourceProxy::Image(image_atlas),
@@ -468,7 +456,6 @@ impl Render {
                         fine.info_bin_data_buf,
                         fine.blend_spill_buf,
                         ResourceProxy::Image(fine.out_image),
-                        fine.gradient_image,
                         fine.image_atlas,
                     ],
                 );
@@ -502,7 +489,6 @@ impl Render {
                         fine.info_bin_data_buf,
                         fine.blend_spill_buf,
                         ResourceProxy::Image(fine.out_image),
-                        fine.gradient_image,
                         fine.image_atlas,
                         self.mask_buf.unwrap(),
                     ],
@@ -513,7 +499,6 @@ impl Render {
         recording.free_resource(fine.tile_buf);
         recording.free_resource(fine.segments_buf);
         recording.free_resource(fine.ptcl_buf);
-        recording.free_resource(fine.gradient_image);
         recording.free_resource(fine.image_atlas);
         recording.free_resource(fine.info_bin_data_buf);
         recording.free_resource(fine.blend_spill_buf);
