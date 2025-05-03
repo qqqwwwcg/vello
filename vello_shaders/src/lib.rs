@@ -48,8 +48,6 @@ mod types;
 
 #[cfg(feature = "compile")]
 pub mod compile;
-#[cfg(feature = "cpu")]
-pub mod cpu;
 
 pub use types::{BindType, BindingInfo, WorkgroupBufferInfo};
 

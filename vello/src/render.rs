@@ -168,7 +168,7 @@ impl Render {
         );
         let mut pathtag_parent = reduced_buf;
         let mut large_pathtag_bufs = None;
-        let use_large_path_scan = wg_counts.use_large_path_scan && !shaders.pathtag_is_cpu;
+        let use_large_path_scan = wg_counts.use_large_path_scan;
         if use_large_path_scan {
             let reduced2_buf = ResourceProxy::new_buf(
                 buffer_sizes.path_reduced2.size_in_bytes().into(),

@@ -39,9 +39,6 @@ pub struct FullShaders {
     pub fine_area: Option<ShaderId>,
     pub fine_msaa8: Option<ShaderId>,
     pub fine_msaa16: Option<ShaderId>,
-    // 2-level dispatch works for CPU pathtag scan even for large
-    // inputs, 3-level is not yet implemented.
-    pub pathtag_is_cpu: bool,
 }
 
 #[cfg(feature = "wgpu")]
@@ -50,66 +47,28 @@ pub(crate) fn full_shaders(
     engine: &mut WgpuEngine,
     options: &RendererOptions,
 ) -> Result<FullShaders, Error> {
-    use crate::wgpu_engine::CpuShaderType;
     use BindType::*;
-
-    let mut force_gpu = false;
-    let force_gpu_from: Option<&str> = None;
-    // Uncomment this to force use of GPU shaders from the specified shader and later even
-    // if `engine.use_cpu` is specified.
-    //let force_gpu_from = Some("binning");
 
     let shaders = vello_shaders::SHADERS;
 
     macro_rules! add_shader {
-        ($name:ident, $label:expr, $bindings:expr, $cpu:expr) => {{
-            if force_gpu_from == Some(stringify!($name)) {
-                force_gpu = true;
-            }
-
+        ($name:ident, $label:expr, $bindings:expr) => {{
             let source = shaders.$name.wgsl.code;
-            engine.add_compute_shader(
-                device,
-                concat!("vello.", $label),
-                source,
-                &$bindings,
-                if force_gpu {
-                    CpuShaderType::Missing
-                } else {
-                    $cpu
-                },
-            )
+            engine.add_compute_shader(device, concat!("vello.", $label), source, &$bindings)
         }};
-        ($name:ident, $bindings:expr, $cpu:expr) => {{ add_shader!($name, stringify!($name), $bindings, $cpu) }};
-        ($name:ident, $bindings:expr) => {
-            add_shader!(
-                $name,
-                $bindings,
-                CpuShaderType::Present(vello_shaders::cpu::$name)
-            )
-        };
+        ($name:ident, $bindings:expr) => {{ add_shader!($name, stringify!($name), $bindings) }};
     }
 
     let pathtag_reduce = add_shader!(pathtag_reduce, [Uniform, BufReadOnly, Buffer]);
-    let pathtag_reduce2 = add_shader!(
-        pathtag_reduce2,
-        [BufReadOnly, Buffer],
-        CpuShaderType::Skipped
-    );
-    let pathtag_scan1 = add_shader!(
-        pathtag_scan1,
-        [BufReadOnly, BufReadOnly, Buffer],
-        CpuShaderType::Skipped
-    );
+    let pathtag_reduce2 = add_shader!(pathtag_reduce2, [BufReadOnly, Buffer]);
+    let pathtag_scan1 = add_shader!(pathtag_scan1, [BufReadOnly, BufReadOnly, Buffer]);
     let pathtag_scan = add_shader!(
         pathtag_scan_small,
-        [Uniform, BufReadOnly, BufReadOnly, Buffer],
-        CpuShaderType::Present(vello_shaders::cpu::pathtag_scan)
+        [Uniform, BufReadOnly, BufReadOnly, Buffer]
     );
     let pathtag_scan_large = add_shader!(
         pathtag_scan_large,
-        [Uniform, BufReadOnly, BufReadOnly, Buffer],
-        CpuShaderType::Skipped
+        [Uniform, BufReadOnly, BufReadOnly, Buffer]
     );
     let bbox_clear = add_shader!(bbox_clear, [Uniform, Buffer]);
     let flatten = add_shader!(
@@ -164,11 +123,7 @@ pub(crate) fn full_shaders(
         path_count,
         [Uniform, Buffer, BufReadOnly, BufReadOnly, Buffer, Buffer]
     );
-    let backdrop = add_shader!(
-        backdrop_dyn,
-        [Uniform, Buffer, BufReadOnly, Buffer],
-        CpuShaderType::Present(vello_shaders::cpu::backdrop)
-    );
+    let backdrop = add_shader!(backdrop_dyn, [Uniform, Buffer, BufReadOnly, Buffer]);
     let coarse = add_shader!(
         coarse,
         [
@@ -212,27 +167,18 @@ pub(crate) fn full_shaders(
     let fine_area = if aa_support.area {
         Some(add_shader!(
             fine_area,
-            fine_resources[..fine_resources.len() - 1],
-            CpuShaderType::Missing
+            fine_resources[..fine_resources.len() - 1]
         ))
     } else {
         None
     };
     let fine_msaa8 = if aa_support.msaa8 {
-        Some(add_shader!(
-            fine_msaa8,
-            fine_resources,
-            CpuShaderType::Missing
-        ))
+        Some(add_shader!(fine_msaa8, fine_resources))
     } else {
         None
     };
     let fine_msaa16 = if aa_support.msaa16 {
-        Some(add_shader!(
-            fine_msaa16,
-            fine_resources,
-            CpuShaderType::Missing
-        ))
+        Some(add_shader!(fine_msaa16, fine_resources))
     } else {
         None
     };
@@ -260,6 +206,5 @@ pub(crate) fn full_shaders(
         fine_area,
         fine_msaa8,
         fine_msaa16,
-        pathtag_is_cpu: options.use_cpu,
     })
 }

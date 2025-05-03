@@ -221,7 +221,6 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                 let renderer = Renderer::new(
                     &device_handle.device,
                     RendererOptions {
-                        use_cpu: self.use_cpu,
                         antialiasing_support: AA_CONFIGS.iter().copied().collect(),
 
                         pipeline_cache: cache.as_ref().map(|(cache, _, _)| cache.clone()),

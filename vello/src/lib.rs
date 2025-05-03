@@ -329,14 +329,6 @@ pub struct RenderParams {
 #[cfg(feature = "wgpu")]
 /// Options which are set at renderer creation time, used in [`Renderer::new`].
 pub struct RendererOptions {
-    /// If true, run all stages up to fine rasterization on the CPU.
-    ///
-    /// This is not a recommended configuration as it is expected to have poor performance,
-    /// but it can be useful for debugging.
-    // TODO: Consider evolving this so that the CPU stages can be configured dynamically via
-    // `RenderParams`.
-    pub use_cpu: bool,
-
     /// Represents the enabled set of AA configurations. This will be used to determine which
     /// pipeline permutations should be compiled at startup.
     ///
@@ -354,7 +346,6 @@ pub struct RendererOptions {
 impl Default for RendererOptions {
     fn default() -> Self {
         Self {
-            use_cpu: false,
             antialiasing_support: AaSupport::all(),
             pipeline_cache: None,
         }
@@ -370,7 +361,7 @@ struct RenderResult {
 impl Renderer {
     /// Creates a new renderer for the specified device.
     pub fn new(device: &Device, options: RendererOptions) -> Result<Self> {
-        let mut engine = WgpuEngine::new(options.use_cpu, options.pipeline_cache.clone());
+        let mut engine = WgpuEngine::new(options.pipeline_cache.clone());
 
         let shaders = shaders::full_shaders(device, &mut engine, &options)?;
 

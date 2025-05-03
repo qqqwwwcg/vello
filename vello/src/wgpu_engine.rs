@@ -17,7 +17,6 @@ use crate::{
     low_level::{BufferProxy, Command, ImageProxy, Recording, ResourceId, ResourceProxy, ShaderId},
     recording::BindType,
 };
-use vello_shaders::cpu::CpuBinding;
 
 #[cfg(not(target_arch = "wasm32"))]
 struct UninitialisedShader {
@@ -29,13 +28,10 @@ struct UninitialisedShader {
 
 #[derive(Default)]
 pub(crate) struct WgpuEngine {
-    shaders: Vec<Shader>,
+    shaders: Vec<WgpuShader>,
     pool: ResourcePool,
     bind_map: BindMap,
     downloads: HashMap<ResourceId, Buffer>,
-    #[cfg(not(target_arch = "wasm32"))]
-    shaders_to_initialise: Option<Vec<UninitialisedShader>>,
-    pub(crate) use_cpu: bool,
     /// Overrides from a specific `Image::data`'s [`id`](peniko::Blob::id) to a wgpu `Texture`.
     ///
     /// The `Texture` should have the same size as the `Image`.
@@ -43,46 +39,9 @@ pub(crate) struct WgpuEngine {
     pipeline_cache: Option<PipelineCache>,
 }
 
-enum PipelineState {
-    Compute(ComputePipeline),
-}
-
 struct WgpuShader {
-    pipeline: PipelineState,
+    pipeline: ComputePipeline,
     bind_group_layout: BindGroupLayout,
-}
-
-pub(crate) enum CpuShaderType {
-    Present(fn(u32, &[CpuBinding<'_>])),
-    Missing,
-    Skipped,
-}
-
-struct CpuShader {
-    shader: fn(u32, &[CpuBinding<'_>]),
-}
-
-enum ShaderKind<'a> {
-    Wgpu(&'a WgpuShader),
-    Cpu(&'a CpuShader),
-}
-
-struct Shader {
-    label: &'static str,
-    wgpu: Option<WgpuShader>,
-    cpu: Option<CpuShader>,
-}
-
-impl Shader {
-    fn select(&self) -> ShaderKind<'_> {
-        if let Some(cpu) = self.cpu.as_ref() {
-            ShaderKind::Cpu(cpu)
-        } else if let Some(wgpu) = self.wgpu.as_ref() {
-            ShaderKind::Wgpu(wgpu)
-        } else {
-            panic!("no available shader for {}", self.label)
-        }
-    }
 }
 
 pub(crate) enum ExternalResource<'a> {
@@ -139,9 +98,8 @@ enum TransientBuf<'a> {
 }
 
 impl WgpuEngine {
-    pub fn new(use_cpu: bool, pipeline_cache: Option<PipelineCache>) -> Self {
+    pub fn new(pipeline_cache: Option<PipelineCache>) -> Self {
         Self {
-            use_cpu,
             pipeline_cache,
             ..Default::default()
         }
@@ -160,7 +118,6 @@ impl WgpuEngine {
         label: &'static str,
         wgsl: Cow<'static, str>,
         layout: &[BindType],
-        cpu_shader: CpuShaderType,
     ) -> ShaderId {
         let mut add = |shader| {
             let id = self.shaders.len();
@@ -168,46 +125,10 @@ impl WgpuEngine {
             ShaderId(id)
         };
 
-        if self.use_cpu {
-            match cpu_shader {
-                CpuShaderType::Present(shader) => {
-                    return add(Shader {
-                        wgpu: None,
-                        cpu: Some(CpuShader { shader }),
-                        label,
-                    });
-                }
-                // This shader is unused in CPU mode, create a dummy shader
-                CpuShaderType::Skipped => {
-                    return add(Shader {
-                        wgpu: None,
-                        cpu: None,
-                        label,
-                    });
-                }
-                // Create a GPU shader as we don't have a CPU shader
-                CpuShaderType::Missing => {}
-            }
-        }
-
         let entries = Self::create_bind_group_layout_entries(
             layout.iter().map(|b| (*b, wgpu::ShaderStages::COMPUTE)),
         );
-        #[cfg(not(target_arch = "wasm32"))]
-        if let Some(uninit) = self.shaders_to_initialise.as_mut() {
-            let id = add(Shader {
-                label,
-                wgpu: None,
-                cpu: None,
-            });
-            uninit.push(UninitialisedShader {
-                wgsl,
-                label,
-                entries,
-                shader_id: id,
-            });
-            return id;
-        }
+
         let wgpu = Self::create_compute_pipeline(
             device,
             label,
@@ -215,11 +136,7 @@ impl WgpuEngine {
             entries,
             self.pipeline_cache.as_ref(),
         );
-        add(Shader {
-            wgpu: Some(wgpu),
-            cpu: None,
-            label,
-        })
+        add(wgpu)
     }
 
     pub fn run_recording(
@@ -371,109 +288,60 @@ impl WgpuEngine {
                 Command::Dispatch(shader_id, wg_size, bindings) => {
                     let (x, y, z) = *wg_size;
                     // println!("dispatching {:?} with {} bindings", wg_size, bindings.len());
-                    let shader = &self.shaders[shader_id.0];
-                    match shader.select() {
-                        ShaderKind::Cpu(cpu_shader) => {
-                            // The current strategy is to run the CPU shader synchronously. This
-                            // works because there is currently the added constraint that data
-                            // can only flow from CPU to GPU, not the other way around. If and
-                            // when we implement that, we will need to defer the execution. Of
-                            // course, we will also need to wire up more async synchronization
-                            // mechanisms, as the CPU dispatch can't run until the preceding
-                            // command buffer submission completes (and, in WebGPU, the async
-                            // mapping operations on the buffers completes).
-                            let resources =
-                                transient_map.create_cpu_resources(&mut self.bind_map, bindings);
-                            (cpu_shader.shader)(x, &resources);
-                        }
-                        ShaderKind::Wgpu(wgpu_shader) => {
-                            // Workaround for https://github.com/linebender/vello/issues/637
-                            if x == 0 || y == 0 || z == 0 {
-                                continue;
-                            }
-                            let bind_group = transient_map.create_bind_group(
-                                &mut self.bind_map,
-                                &mut self.pool,
-                                device,
-                                queue,
-                                &mut encoder,
-                                &wgpu_shader.bind_group_layout,
-                                bindings,
-                            );
-                            let mut cpass =
-                                encoder.begin_compute_pass(&ComputePassDescriptor::default());
+                    let wgpu_shader = &self.shaders[shader_id.0];
 
-                            #[cfg_attr(
-                                not(feature = "debug_layers"),
-                                expect(
-                                    irrefutable_let_patterns,
-                                    reason = "Render shaders are only enabled if we have the debug pipeline"
-                                )
-                            )]
-                            let PipelineState::Compute(pipeline) = &wgpu_shader.pipeline else {
-                                panic!("cannot issue a dispatch with a render pipeline");
-                            };
-                            cpass.set_pipeline(pipeline);
-                            cpass.set_bind_group(0, &bind_group, &[]);
-                            cpass.dispatch_workgroups(x, y, z);
-                        }
+                    // Workaround for https://github.com/linebender/vello/issues/637
+                    if x == 0 || y == 0 || z == 0 {
+                        continue;
                     }
+                    let bind_group = transient_map.create_bind_group(
+                        &mut self.bind_map,
+                        &mut self.pool,
+                        device,
+                        queue,
+                        &mut encoder,
+                        &wgpu_shader.bind_group_layout,
+                        bindings,
+                    );
+                    let mut cpass = encoder.begin_compute_pass(&ComputePassDescriptor::default());
+
+                    let pipeline = &wgpu_shader.pipeline;
+                    cpass.set_pipeline(pipeline);
+                    cpass.set_bind_group(0, &bind_group, &[]);
+                    cpass.dispatch_workgroups(x, y, z);
                 }
                 Command::DispatchIndirect(shader_id, proxy, offset, bindings) => {
-                    let shader = &self.shaders[shader_id.0];
-                    match shader.select() {
-                        ShaderKind::Cpu(cpu_shader) => {
-                            // Same consideration as above about running the CPU shader synchronously.
-                            let n_wg;
-                            if let CpuBinding::BufferRW(b) = self.bind_map.get_cpu_buf(proxy.id) {
-                                let slice = b.borrow();
-                                let indirect: &[u32] = bytemuck::cast_slice(&slice);
-                                n_wg = indirect[0];
-                            } else {
-                                panic!("indirect buffer missing from bind map");
-                            }
-                            let resources =
-                                transient_map.create_cpu_resources(&mut self.bind_map, bindings);
-                            (cpu_shader.shader)(n_wg, &resources);
-                        }
-                        ShaderKind::Wgpu(wgpu_shader) => {
-                            let bind_group = transient_map.create_bind_group(
-                                &mut self.bind_map,
-                                &mut self.pool,
-                                device,
-                                queue,
-                                &mut encoder,
-                                &wgpu_shader.bind_group_layout,
-                                bindings,
-                            );
-                            transient_map.materialize_gpu_buf_for_indirect(
-                                &mut self.bind_map,
-                                &mut self.pool,
-                                device,
-                                queue,
-                                proxy,
-                            );
-                            let mut cpass =
-                                encoder.begin_compute_pass(&ComputePassDescriptor::default());
+                    let wgpu_shader = &self.shaders[shader_id.0];
 
-                            #[cfg_attr(
-                                not(feature = "debug_layers"),
-                                expect(
-                                    irrefutable_let_patterns,
-                                    reason = "Render shaders are only enabled if we have the debug pipeline"
-                                )
-                            )]
-                            let PipelineState::Compute(pipeline) = &wgpu_shader.pipeline else {
-                                panic!("cannot issue a dispatch with a render pipeline");
-                            };
-                            cpass.set_pipeline(pipeline);
-                            cpass.set_bind_group(0, &bind_group, &[]);
-                            let buf = self.bind_map.get_gpu_buf(proxy.id).ok_or(
-                                Error::UnavailableBufferUsed(proxy.name, "indirect dispatch"),
-                            )?;
-                            cpass.dispatch_workgroups_indirect(buf, *offset);
-                        }
-                    }
+                    let bind_group = transient_map.create_bind_group(
+                        &mut self.bind_map,
+                        &mut self.pool,
+                        device,
+                        queue,
+                        &mut encoder,
+                        &wgpu_shader.bind_group_layout,
+                        bindings,
+                    );
+                    transient_map.materialize_gpu_buf_for_indirect(
+                        &mut self.bind_map,
+                        &mut self.pool,
+                        device,
+                        queue,
+                        proxy,
+                    );
+                    let mut cpass = encoder.begin_compute_pass(&ComputePassDescriptor::default());
+
+                    let pipeline = &wgpu_shader.pipeline;
+                    cpass.set_pipeline(pipeline);
+                    cpass.set_bind_group(0, &bind_group, &[]);
+                    let buf =
+                        self.bind_map
+                            .get_gpu_buf(proxy.id)
+                            .ok_or(Error::UnavailableBufferUsed(
+                                proxy.name,
+                                "indirect dispatch",
+                            ))?;
+                    cpass.dispatch_workgroups_indirect(buf, *offset);
                 }
                 Command::Download(proxy) => {
                     let src_buf = self
@@ -626,7 +494,7 @@ impl WgpuEngine {
             cache,
         });
         WgpuShader {
-            pipeline: PipelineState::Compute(pipeline),
+            pipeline,
             bind_group_layout,
         }
     }
@@ -649,27 +517,6 @@ impl BindMap {
             MaterializedBuffer::Gpu(b) => Some(b),
             _ => None,
         })
-    }
-
-    /// Get a CPU buffer.
-    ///
-    /// Panics if buffer is not present or is on GPU.
-    fn get_cpu_buf(&self, id: ResourceId) -> CpuBinding<'_> {
-        match &self.buf_map[&id].buffer {
-            MaterializedBuffer::Cpu(b) => CpuBinding::BufferRW(b),
-            _ => panic!("getting cpu buffer, but it's on gpu"),
-        }
-    }
-
-    fn materialize_cpu_buf(&mut self, buf: &BufferProxy) {
-        self.buf_map.entry(buf.id).or_insert_with(|| {
-            let buffer = MaterializedBuffer::Cpu(RefCell::new(vec![0; buf.size as usize]));
-            BindMapBuffer {
-                buffer,
-                // TODO: do we need to cfg this?
-                label: buf.name,
-            }
-        });
     }
 
     fn insert_image(&mut self, id: ResourceId, image: Texture, image_view: TextureView) {
@@ -950,40 +797,5 @@ impl<'a> TransientBindMap<'a> {
             layout,
             entries: &entries,
         })
-    }
-
-    fn create_cpu_resources(
-        &self,
-        bind_map: &'a mut BindMap,
-        bindings: &[ResourceProxy],
-    ) -> Vec<CpuBinding<'_>> {
-        // First pass is mutable; create buffers as needed
-        for resource in bindings {
-            match resource {
-                ResourceProxy::Buffer(proxy)
-                | ResourceProxy::BufferRange {
-                    proxy,
-                    offset: _,
-                    size: _,
-                } => match self.bufs.get(&proxy.id) {
-                    Some(TransientBuf::Cpu(_)) => (),
-                    Some(TransientBuf::Gpu(_)) => panic!("buffer was already materialized on GPU"),
-                    _ => bind_map.materialize_cpu_buf(proxy),
-                },
-                ResourceProxy::Image(_) => todo!(),
-            }
-        }
-        // Second pass takes immutable references
-        bindings
-            .iter()
-            .map(|resource| match resource {
-                ResourceProxy::Buffer(buf) => match self.bufs.get(&buf.id) {
-                    Some(TransientBuf::Cpu(b)) => CpuBinding::Buffer(b),
-                    _ => bind_map.get_cpu_buf(buf.id),
-                },
-                ResourceProxy::BufferRange { .. } => todo!(),
-                ResourceProxy::Image(_) => todo!(),
-            })
-            .collect()
     }
 }
