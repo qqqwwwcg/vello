@@ -100,7 +100,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         device,
         RendererOptions {
             use_cpu: args.use_cpu,
-            num_init_threads: NonZeroUsize::new(1),
+
             antialiasing_support: vello::AaSupport::area_only(),
             ..Default::default()
         },

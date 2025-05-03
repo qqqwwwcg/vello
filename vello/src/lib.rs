@@ -344,18 +344,6 @@ pub struct RendererOptions {
     /// It is recommended that most users configure this.
     pub antialiasing_support: AaSupport,
 
-    /// How many threads to use for initialisation of shaders.
-    ///
-    /// Use `Some(1)` to use a single thread. This is recommended when on macOS
-    /// (see <https://github.com/bevyengine/bevy/pull/10812#discussion_r1496138004>)
-    ///
-    /// Set to `None` to use a heuristic which will use many but not all threads
-    ///
-    /// Has no effect on WebAssembly
-    ///
-    /// Will default to `None` on most platforms, `Some(1)` on macOS.
-    pub num_init_threads: Option<NonZeroUsize>,
-
     /// The pipeline cache to use when creating the shaders.
     ///
     /// For much more discussion of expected usage patterns, see the documentation on that type.
@@ -368,10 +356,6 @@ impl Default for RendererOptions {
         Self {
             use_cpu: false,
             antialiasing_support: AaSupport::all(),
-            #[cfg(target_os = "macos")]
-            num_init_threads: NonZeroUsize::new(1),
-            #[cfg(not(target_os = "macos"))]
-            num_init_threads: None,
             pipeline_cache: None,
         }
     }
@@ -387,14 +371,8 @@ impl Renderer {
     /// Creates a new renderer for the specified device.
     pub fn new(device: &Device, options: RendererOptions) -> Result<Self> {
         let mut engine = WgpuEngine::new(options.use_cpu, options.pipeline_cache.clone());
-        // If we are running in parallel (i.e. the number of threads is not 1)
-        if options.num_init_threads != NonZeroUsize::new(1) {
-            #[cfg(not(target_arch = "wasm32"))]
-            engine.use_parallel_initialisation();
-        }
+
         let shaders = shaders::full_shaders(device, &mut engine, &options)?;
-        #[cfg(not(target_arch = "wasm32"))]
-        engine.build_shaders_if_needed(device, options.num_init_threads);
 
         Ok(Self {
             options,

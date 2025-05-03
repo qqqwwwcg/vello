@@ -124,8 +124,6 @@ struct VelloApp<'s> {
 
     #[cfg(not(target_arch = "wasm32"))]
     use_cpu: bool,
-    #[cfg(not(target_arch = "wasm32"))]
-    num_init_threads: usize,
 
     scenes: Vec<ExampleScene>,
     scene: Scene,
@@ -225,7 +223,7 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                     RendererOptions {
                         use_cpu: self.use_cpu,
                         antialiasing_support: AA_CONFIGS.iter().copied().collect(),
-                        num_init_threads: NonZeroUsize::new(self.num_init_threads),
+
                         pipeline_cache: cache.as_ref().map(|(cache, _, _)| cache.clone()),
                     },
                 )
@@ -678,8 +676,6 @@ fn run(
         cached_window: None,
         #[cfg(not(target_arch = "wasm32"))]
         use_cpu: args.use_cpu,
-        #[cfg(not(target_arch = "wasm32"))]
-        num_init_threads: args.num_init_threads,
         scenes: scenes.scenes,
         scene: Scene::new(),
         fragment: Scene::new(),
@@ -750,10 +746,7 @@ fn window_attributes() -> WindowAttributes {
 }
 
 #[derive(Debug)]
-enum UserEvent {
-    #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
-    HotReload,
-}
+enum UserEvent {}
 
 #[cfg(target_arch = "wasm32")]
 fn display_error_message() -> Option<()> {
