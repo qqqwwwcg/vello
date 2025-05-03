@@ -35,8 +35,6 @@ mod clip;
 mod config;
 mod draw;
 mod encoding;
-#[cfg(feature = "bump_estimate")]
-mod estimate;
 mod image_cache;
 mod mask;
 pub mod math;
@@ -61,9 +59,6 @@ pub use path::{
     PathTag, SegmentCount, Style, Tile,
 };
 pub use resolve::{Layout, Patch, Resolver, resolve_solid_paths_only};
-
-#[cfg(feature = "bump_estimate")]
-pub use estimate::BumpEstimator;
 
 /// A normalized variation coordinate (for variable fonts) in 2.14 fixed point format.
 ///

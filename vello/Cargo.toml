@@ -17,11 +17,6 @@ targets = []
 
 [features]
 default = ["wgpu"]
-# Enables GPU memory usage estimation. This performs additional computations
-# in order to estimate the minimum required allocations for buffers backing
-# bump-allocated GPU memory.
-# TODO: Turn this into a runtime option used at resolve time and remove the feature.
-bump_estimate = ["vello_encoding/bump_estimate"]
 wgpu = ["dep:wgpu", "dep:vello_shaders", "dep:futures-intrusive"]
 
 

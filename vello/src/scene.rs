@@ -6,8 +6,6 @@ use peniko::{
     kurbo::{Affine, Rect, Shape, Stroke, StrokeOpts},
 };
 
-#[cfg(feature = "bump_estimate")]
-use vello_encoding::BumpAllocatorMemory;
 use vello_encoding::{Encoding, Transform};
 
 // TODO - Document invariants and edge cases (#470)
@@ -28,8 +26,6 @@ use vello_encoding::{Encoding, Transform};
 #[derive(Clone, Default)]
 pub struct Scene {
     encoding: Encoding,
-    #[cfg(feature = "bump_estimate")]
-    estimator: vello_encoding::BumpEstimator,
 }
 static_assertions::assert_impl_all!(Scene: Send, Sync);
 
@@ -42,16 +38,6 @@ impl Scene {
     /// Removes all content from the scene.
     pub fn reset(&mut self) {
         self.encoding.reset();
-        #[cfg(feature = "bump_estimate")]
-        self.estimator.reset();
-    }
-
-    /// Tally up the bump allocator estimate for the current state of the encoding,
-    /// taking into account an optional `transform` applied to the entire scene.
-    #[cfg(feature = "bump_estimate")]
-    pub fn bump_estimate(&self, transform: Option<Affine>) -> BumpAllocatorMemory {
-        self.estimator
-            .tally(transform.as_ref().map(Transform::from_kurbo).as_ref())
     }
 
     /// Returns the underlying raw encoding.
@@ -94,15 +80,6 @@ impl Scene {
             // If the layer shape is invalid, encode a valid empty path. This suppresses
             // all drawing until the layer is popped.
             self.encoding.encode_empty_shape();
-            #[cfg(feature = "bump_estimate")]
-            {
-                use peniko::kurbo::PathEl;
-                let path = [PathEl::MoveTo(Point::ZERO), PathEl::LineTo(Point::ZERO)];
-                self.estimator.count_path(path.into_iter(), &t, None);
-            }
-        } else {
-            #[cfg(feature = "bump_estimate")]
-            self.estimator.count_path(clip.path_elements(0.1), &t, None);
         }
         self.encoding
             .encode_begin_clip(blend, alpha.clamp(0.0, 1.0));
@@ -139,9 +116,6 @@ impl Scene {
                 }
             }
             self.encoding.encode_brush(brush, 1.0);
-            #[cfg(feature = "bump_estimate")]
-            self.estimator
-                .count_path(shape.path_elements(0.1), &t, None);
         }
     }
 
@@ -182,9 +156,6 @@ impl Scene {
             // we convert it into stroked paths on the CPU and encode those as individual draw
             // objects.
             let encode_result = if style.dash_pattern.is_empty() {
-                #[cfg(feature = "bump_estimate")]
-                self.estimator
-                    .count_path(shape.path_elements(SHAPE_TOLERANCE), &t, Some(style));
                 self.encoding.encode_shape(shape, false)
             } else {
                 // TODO: We currently collect the output of the dash iterator because
@@ -198,9 +169,7 @@ impl Scene {
                     &style.dash_pattern,
                 )
                 .collect::<Vec<_>>();
-                #[cfg(feature = "bump_estimate")]
-                self.estimator
-                    .count_path(dashed.iter().copied(), &t, Some(style));
+
                 self.encoding
                     .encode_path_elements(dashed.into_iter(), false)
             };
@@ -244,8 +213,6 @@ impl Scene {
     pub fn append(&mut self, other: &Self, transform: Option<Affine>) {
         let t = transform.as_ref().map(Transform::from_kurbo);
         self.encoding.append(&other.encoding, &t);
-        #[cfg(feature = "bump_estimate")]
-        self.estimator.append(&other.estimator, t.as_ref());
     }
 }
 
@@ -253,10 +220,6 @@ impl From<Encoding> for Scene {
     fn from(encoding: Encoding) -> Self {
         // It's fine to create a default estimator here, and that field will be
         // removed at some point - see https://github.com/linebender/vello/issues/541
-        Self {
-            encoding,
-            #[cfg(feature = "bump_estimate")]
-            estimator: vello_encoding::BumpEstimator::default(),
-        }
+        Self { encoding }
     }
 }
