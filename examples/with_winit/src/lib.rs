@@ -46,8 +46,6 @@ use winit::window::{Window, WindowAttributes};
 
 use vello::wgpu::{self, PipelineCache};
 
-#[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
-mod hot_reload;
 mod minimal_pipeline_cache;
 mod multi_touch;
 
@@ -572,28 +570,7 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
         }
     }
 
-    fn user_event(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop, event: UserEvent) {
-        match event {
-            #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
-            UserEvent::HotReload => {
-                let Some(render_state) = &mut self.state else {
-                    return;
-                };
-                let device_handle = &self.context.devices[render_state.surface.dev_id];
-                log::info!("==============\nReloading shaders");
-                let start = Instant::now();
-                let result = self.renderers[render_state.surface.dev_id]
-                    .as_mut()
-                    .unwrap()
-                    .reload_shaders(&device_handle.device);
-                // We know that the only async here (`pop_error_scope`) is actually sync, so blocking is fine
-                match pollster::block_on(result) {
-                    Ok(_) => log::info!("Reloading took {:?}", start.elapsed()),
-                    Err(e) => log::error!("Failed to reload shaders: {e}"),
-                }
-            }
-        }
-    }
+    fn user_event(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop, event: UserEvent) {}
 
     fn suspended(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
         log::info!("Suspending");
@@ -817,9 +794,6 @@ pub fn main() -> anyhow::Result<()> {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let proxy = event_loop.create_proxy();
-            let _keep = hot_reload::hot_reload(move || {
-                proxy.send_event(UserEvent::HotReload).ok().map(drop)
-            });
 
             run(event_loop, args, scenes, render_cx);
         }

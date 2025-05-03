@@ -281,12 +281,6 @@ pub enum Error {
     #[cfg(feature = "wgpu")]
     #[error("wgpu Error from scope")]
     WgpuErrorFromScope(#[from] wgpu::Error),
-
-    /// Failed to compile the shaders.
-    #[cfg(feature = "hot_reload")]
-    #[error("Failed to compile shaders:\n{0}")]
-    #[doc(hidden)] // End-users of Vello should not have `hot_reload` enabled.
-    ShaderCompilation(#[from] vello_shaders::compile::ErrorVec),
 }
 
 #[cfg_attr(
@@ -302,13 +296,6 @@ pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 /// This is an assumption which is known to be limiting, and is planned to change.
 #[cfg(feature = "wgpu")]
 pub struct Renderer {
-    #[cfg_attr(
-        not(feature = "hot_reload"),
-        expect(
-            dead_code,
-            reason = "Options are only used to reinitialise on a hot reload"
-        )
-    )]
     options: RendererOptions,
     engine: WgpuEngine,
     resolver: Resolver,
@@ -473,25 +460,6 @@ impl Renderer {
             Some(texture) => self.engine.image_overrides.insert(image.data.id(), texture),
             None => self.engine.image_overrides.remove(&image.data.id()),
         }
-    }
-
-    /// Reload the shaders. This should only be used during `vello` development
-    #[cfg(feature = "hot_reload")]
-    #[doc(hidden)] // End-users of Vello should not have `hot_reload` enabled.
-    pub async fn reload_shaders(&mut self, device: &Device) -> Result<(), Error> {
-        device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let mut engine = WgpuEngine::new(self.options.use_cpu, self.options.pipeline_cache.clone());
-        // We choose not to initialise these shaders in parallel, to ensure the error scope works correctly
-        let shaders = shaders::full_shaders(device, &mut engine, &self.options)?;
-
-        let error = device.pop_error_scope().await;
-        if let Some(error) = error {
-            return Err(error.into());
-        }
-        self.engine = engine;
-        self.shaders = shaders;
-
-        Ok(())
     }
 
     /// Renders a scene to the target texture using an async pipeline.

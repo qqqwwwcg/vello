@@ -59,9 +59,6 @@ pub(crate) fn full_shaders(
     // if `engine.use_cpu` is specified.
     //let force_gpu_from = Some("binning");
 
-    #[cfg(feature = "hot_reload")]
-    let mut shaders = vello_shaders::compile::ShaderInfo::from_default()?;
-    #[cfg(not(feature = "hot_reload"))]
     let shaders = vello_shaders::SHADERS;
 
     macro_rules! add_shader {
@@ -69,13 +66,7 @@ pub(crate) fn full_shaders(
             if force_gpu_from == Some(stringify!($name)) {
                 force_gpu = true;
             }
-            #[cfg(feature = "hot_reload")]
-            let source = shaders
-                .remove(stringify!($name))
-                .expect(stringify!($name))
-                .source
-                .into();
-            #[cfg(not(feature = "hot_reload"))]
+
             let source = shaders.$name.wgsl.code;
             engine.add_compute_shader(
                 device,

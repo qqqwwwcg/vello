@@ -24,11 +24,7 @@ default = ["wgpu"]
 bump_estimate = ["vello_encoding/bump_estimate"]
 wgpu = ["dep:wgpu", "dep:vello_shaders", "dep:futures-intrusive"]
 
-# Development only features
-# Enables hot reloading of Vello shaders.
-# This is only intended for development of Vello itself.
-# In practise, this won't compile outside of the Vello repository.
-hot_reload = ["vello_shaders/compile"]
+
 
 [lints]
 workspace = true
