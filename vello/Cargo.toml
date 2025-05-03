@@ -28,7 +28,6 @@ workspace = true
 vello_encoding = { workspace = true }
 vello_shaders = { workspace = true, optional = true }
 bytemuck = { workspace = true }
-skrifa = { workspace = true }
 peniko = { workspace = true, default-features = true }
 wgpu = { workspace = true, optional = true }
 log = { workspace = true }
@@ -36,4 +35,3 @@ static_assertions = { workspace = true }
 futures-intrusive = { workspace = true, optional = true }
 thiserror = { workspace = true }
 # TODO: Add feature for built-in bitmap emoji support?
-png = { workspace = true }

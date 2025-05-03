@@ -293,7 +293,6 @@ pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 /// This is an assumption which is known to be limiting, and is planned to change.
 #[cfg(feature = "wgpu")]
 pub struct Renderer {
-    options: RendererOptions,
     engine: WgpuEngine,
     resolver: Resolver,
     shaders: FullShaders,
@@ -363,7 +362,6 @@ impl Renderer {
         let shaders = shaders::full_shaders(device, &mut engine, &options)?;
 
         Ok(Self {
-            options,
             engine,
             resolver: Resolver::new(),
             shaders,

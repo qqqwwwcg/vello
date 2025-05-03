@@ -90,13 +90,11 @@ mod impls {
     use rand::Rng;
     use rand::{SeedableRng, rngs::StdRng};
     use vello::kurbo::{
-        Affine, BezPath, Cap, Circle, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke, Vec2,
+        Affine, BezPath, Cap, Circle, Ellipse, Join, PathEl, Point, Rect, Stroke, Vec2,
     };
     use vello::peniko::color::{AlphaColor, Lch, palette};
     use vello::peniko::*;
     use vello::*;
-
-    const FLOWER_IMAGE: &[u8] = include_bytes!("../../assets/splash-flower.jpg");
 
     pub(super) fn stroke_styles(transform: Affine) -> impl FnMut(&mut Scene, &mut SceneParams<'_>) {
         use PathEl::*;
@@ -1053,7 +1051,7 @@ mod impls {
         );
     }
 
-    pub(super) fn clip_test(scene: &mut Scene, params: &mut SceneParams<'_>) {
+    pub(super) fn clip_test(scene: &mut Scene, _params: &mut SceneParams<'_>) {
         let clip = {
             const X0: f64 = 50.0;
             const Y0: f64 = 0.0;

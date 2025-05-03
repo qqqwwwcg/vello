@@ -14,7 +14,6 @@
 )]
 
 use std::collections::HashSet;
-use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -121,9 +120,6 @@ struct VelloApp<'s> {
     // If render_state exists, we must store the window in it, to maintain drop order
     #[cfg(not(target_arch = "wasm32"))]
     cached_window: Option<Arc<Window>>,
-
-    #[cfg(not(target_arch = "wasm32"))]
-    use_cpu: bool,
 
     scenes: Vec<ExampleScene>,
     scene: Scene,
@@ -565,7 +561,7 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
         }
     }
 
-    fn user_event(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop, event: UserEvent) {}
+    fn user_event(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop, _event: UserEvent) {}
 
     fn suspended(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
         log::info!("Suspending");
@@ -671,8 +667,6 @@ fn run(
         state: render_state,
         #[cfg(not(target_arch = "wasm32"))]
         cached_window: None,
-        #[cfg(not(target_arch = "wasm32"))]
-        use_cpu: args.use_cpu,
         scenes: scenes.scenes,
         scene: Scene::new(),
         fragment: Scene::new(),
@@ -781,11 +775,8 @@ pub fn main() -> anyhow::Result<()> {
         let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
         let render_cx = RenderContext::new();
         #[cfg(not(target_arch = "wasm32"))]
-        {
-            let proxy = event_loop.create_proxy();
+        run(event_loop, args, scenes, render_cx);
 
-            run(event_loop, args, scenes, render_cx);
-        }
         #[cfg(target_arch = "wasm32")]
         {
             let mut render_cx = render_cx;

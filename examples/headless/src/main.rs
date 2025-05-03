@@ -12,12 +12,11 @@
 )]
 
 use std::fs::File;
-use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::Parser;
-use scenes::{ImageCache, SceneParams, SceneSet, SimpleText};
+use scenes::{ImageCache, SceneParams, SceneSet};
 use vello::kurbo::{Affine, Vec2};
 use vello::peniko::color::palette;
 use vello::util::RenderContext;
@@ -106,7 +105,6 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     .or_else(|_| bail!("Got non-Send/Sync error from creating renderer"))?;
     let mut fragment = Scene::new();
     let example_scene = &mut scenes.scenes[index];
-    let mut text = SimpleText::new();
     let mut images = ImageCache::new();
     let mut scene_params = SceneParams {
         time: args.time.unwrap_or(0.),

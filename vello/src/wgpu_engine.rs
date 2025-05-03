@@ -75,14 +75,8 @@ struct ResourcePool {
 /// uploads.
 #[derive(Default)]
 struct TransientBindMap<'a> {
-    bufs: HashMap<ResourceId, TransientBuf<'a>>,
     // TODO: create transient image type
     images: HashMap<ResourceId, &'a TextureView>,
-}
-
-enum TransientBuf<'a> {
-    Cpu(&'a [u8]),
-    Gpu(&'a Buffer),
 }
 
 impl WgpuEngine {
@@ -280,7 +274,6 @@ impl WgpuEngine {
                         &mut self.bind_map,
                         &mut self.pool,
                         device,
-                        queue,
                         &mut encoder,
                         &wgpu_shader.bind_group_layout,
                         bindings,
@@ -299,7 +292,6 @@ impl WgpuEngine {
                         &mut self.bind_map,
                         &mut self.pool,
                         device,
-                        queue,
                         &mut encoder,
                         &wgpu_shader.bind_group_layout,
                         bindings,
@@ -350,14 +342,13 @@ impl WgpuEngine {
         queue.submit(Some(encoder.finish()));
         for id in free_bufs {
             if let Some(buf) = self.bind_map.buf_map.remove(&id) {
-                if let MaterializedBuffer::Gpu(gpu_buf) = buf.buffer {
-                    let props = BufferProperties {
-                        size: gpu_buf.size(),
-                        usages: gpu_buf.usage(),
-                        name: buf.label,
-                    };
-                    self.pool.bufs.entry(props).or_default().push(gpu_buf);
-                }
+                let MaterializedBuffer::Gpu(gpu_buf) = buf.buffer;
+                let props = BufferProperties {
+                    size: gpu_buf.size(),
+                    usages: gpu_buf.usage(),
+                    name: buf.label,
+                };
+                self.pool.bufs.entry(props).or_default().push(gpu_buf);
             }
         }
         for id in free_images {
@@ -482,9 +473,8 @@ impl BindMap {
 
     /// Get a buffer, only if it's on GPU.
     fn get_gpu_buf(&self, id: ResourceId) -> Option<&Buffer> {
-        self.buf_map.get(&id).and_then(|b| match &b.buffer {
-            MaterializedBuffer::Gpu(b) => Some(b),
-            _ => None,
+        self.buf_map.get(&id).map(|b| match &b.buffer {
+            MaterializedBuffer::Gpu(b) => b,
         })
     }
 
@@ -581,7 +571,6 @@ impl ResourcePool {
 impl<'a> TransientBindMap<'a> {
     /// Create new transient bind map, seeded from external resources
     fn new(external_resources: &'a [ExternalResource<'_>]) -> Self {
-        let mut bufs = HashMap::default();
         let mut images = HashMap::default();
         for resource in external_resources {
             match resource {
@@ -590,7 +579,7 @@ impl<'a> TransientBindMap<'a> {
                 }
             }
         }
-        TransientBindMap { bufs, images }
+        TransientBindMap { images }
     }
 
     fn create_bind_group(
@@ -598,7 +587,6 @@ impl<'a> TransientBindMap<'a> {
         bind_map: &mut BindMap,
         pool: &mut ResourcePool,
         device: &Device,
-        queue: &Queue,
         encoder: &mut CommandEncoder,
         layout: &BindGroupLayout,
         bindings: &[ResourceProxy],
@@ -611,27 +599,21 @@ impl<'a> TransientBindMap<'a> {
                     offset: _,
                     size: _,
                 } => {
-                    if self.bufs.contains_key(&proxy.id) {
-                        continue;
-                    }
-                    match bind_map.buf_map.entry(proxy.id) {
-                        Entry::Vacant(v) => {
-                            // TODO: only some buffers will need indirect & vertex, but does it hurt?
-                            let usage = BufferUsages::COPY_SRC
-                                | BufferUsages::COPY_DST
-                                | BufferUsages::STORAGE
-                                | BufferUsages::INDIRECT
-                                | BufferUsages::VERTEX;
-                            let buf = pool.get_buf(proxy.size, proxy.name, usage, device);
-                            if bind_map.pending_clears.remove(&proxy.id) {
-                                encoder.clear_buffer(&buf, 0, None);
-                            }
-                            v.insert(BindMapBuffer {
-                                buffer: MaterializedBuffer::Gpu(buf),
-                                label: proxy.name,
-                            });
+                    if let Entry::Vacant(v) = bind_map.buf_map.entry(proxy.id) {
+                        // TODO: only some buffers will need indirect & vertex, but does it hurt?
+                        let usage = BufferUsages::COPY_SRC
+                            | BufferUsages::COPY_DST
+                            | BufferUsages::STORAGE
+                            | BufferUsages::INDIRECT
+                            | BufferUsages::VERTEX;
+                        let buf = pool.get_buf(proxy.size, proxy.name, usage, device);
+                        if bind_map.pending_clears.remove(&proxy.id) {
+                            encoder.clear_buffer(&buf, 0, None);
                         }
-                        _ => {}
+                        v.insert(BindMapBuffer {
+                            buffer: MaterializedBuffer::Gpu(buf),
+                            label: proxy.name,
+                        });
                     }
                 }
                 ResourceProxy::Image(proxy) => {
@@ -675,10 +657,7 @@ impl<'a> TransientBindMap<'a> {
             .enumerate()
             .map(|(i, proxy)| match proxy {
                 ResourceProxy::Buffer(proxy) => {
-                    let buf = match self.bufs.get(&proxy.id) {
-                        Some(TransientBuf::Gpu(b)) => b,
-                        _ => bind_map.get_gpu_buf(proxy.id).unwrap(),
-                    };
+                    let buf = bind_map.get_gpu_buf(proxy.id).unwrap();
                     wgpu::BindGroupEntry {
                         binding: i as u32,
                         resource: buf.as_entire_binding(),
@@ -689,10 +668,7 @@ impl<'a> TransientBindMap<'a> {
                     offset,
                     size,
                 } => {
-                    let buf = match self.bufs.get(&proxy.id) {
-                        Some(TransientBuf::Gpu(b)) => b,
-                        _ => bind_map.get_gpu_buf(proxy.id).unwrap(),
-                    };
+                    let buf = bind_map.get_gpu_buf(proxy.id).unwrap();
                     wgpu::BindGroupEntry {
                         binding: i as u32,
                         resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {

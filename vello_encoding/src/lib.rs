@@ -70,10 +70,3 @@ pub use resolve::{Layout, Patch, Resolver, resolve_solid_paths_only};
 /// This allows Vello to update its Skrifa in a patch release, and limits
 /// the need for updates only to align Skrifa versions.
 pub type NormalizedCoord = i16;
-
-#[cfg(test)]
-mod tests {
-    const _NORMALISED_COORD_SIZE_MATCHES: () = assert!(
-        size_of::<skrifa::prelude::NormalizedCoord>() == size_of::<crate::NormalizedCoord>()
-    );
-}

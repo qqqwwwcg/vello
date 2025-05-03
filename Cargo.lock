@@ -2571,8 +2571,6 @@ dependencies = [
  "futures-intrusive",
  "log",
  "peniko",
- "png",
- "skrifa",
  "static_assertions",
  "thiserror 2.0.12",
  "vello_encoding",
@@ -2587,8 +2585,6 @@ dependencies = [
  "bytemuck",
  "guillotiere",
  "peniko",
- "skrifa",
- "smallvec",
 ]
 
 [[package]]
